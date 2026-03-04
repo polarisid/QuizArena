@@ -1,12 +1,13 @@
+
 'use client';
 
 import React, { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { useFirestore, useDoc, useUser } from '@/firebase';
-import { doc, deleteDoc, updateDoc } from 'firebase/firestore';
+import { useFirestore, useDoc, useUser, deleteDocumentNonBlocking } from '@/firebase';
+import { doc, updateDoc } from 'firebase/firestore';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Trophy, Users, Play, SkipForward, Loader2, LogOut, Timer, Coins, ArrowLeft } from 'lucide-react';
+import { Trophy, Users, Play, SkipForward, Loader2, LogOut, Timer, Coins, ArrowLeft, QrCode } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { useMemoFirebase } from '@/firebase/provider';
 import { useToast } from '@/hooks/use-toast';
@@ -45,7 +46,7 @@ export default function HostGameControl() {
 
   const players = room?.players ? Object.values(room.players) : [];
 
-  // Redirecionamento automático se a sala for deletada (por este host ou via painel)
+  // Redirecionamento automático se a sala for deletada (por outro meio ou pelo próprio host)
   useEffect(() => {
     if (pin && !isRoomLoading && room === null && !isFinishing) {
       router.push('/host');
@@ -63,7 +64,6 @@ export default function HostGameControl() {
         
         setTimeLeft(Math.ceil(remaining));
 
-        // Cálculo da pontuação que diminui com o tempo (Mínimo 50% do valor base)
         const basePoints = currentQ.basePoints || 1000;
         const ratio = remaining / currentQ.timeLimitSeconds;
         const potential = Math.round(basePoints * (0.5 + 0.5 * ratio));
@@ -99,13 +99,13 @@ export default function HostGameControl() {
     updateDoc(roomRef, { status: 'results' });
   };
 
-  const handleFinishGame = async () => {
+  const handleFinishGame = () => {
     if (!window.confirm('Deseja encerrar esta arena permanentemente?')) return;
     
     setIsFinishing(true);
     if (roomRef) {
-      // Dispara a exclusão e redireciona imediatamente
-      deleteDoc(roomRef).catch(() => {});
+      // Exclui o documento sem travar o redirecionamento
+      deleteDocumentNonBlocking(roomRef);
       toast({ title: "Arena encerrada com sucesso" });
       router.push('/host');
     } else {
@@ -126,10 +126,23 @@ export default function HostGameControl() {
     );
   }
 
-  if (!room || !user) return null;
+  // Se a sala não existe, mostramos uma tela de transição rápida enquanto o useEffect redireciona
+  if (!room || !user) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-50">
+        <div className="text-center space-y-4">
+          <Loader2 className="w-10 h-10 animate-spin text-primary mx-auto" />
+          <p className="text-muted-foreground font-bold">Encerrando...</p>
+        </div>
+      </div>
+    );
+  }
 
   const currentQ = quiz?.questions[room.currentQuestionIndex];
   const timeProgress = currentQ ? (timeLeft / currentQ.timeLimitSeconds) * 100 : 0;
+
+  // URL para o QR Code (Aponta para a Home com o PIN pré-preenchido)
+  const joinUrl = typeof window !== 'undefined' ? `${window.location.origin}/?pin=${pin}` : '';
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col">
@@ -188,9 +201,19 @@ export default function HostGameControl() {
                      <Play className="w-8 h-8 mr-3 fill-current" /> INICIAR
                    </Button>
                 </Card>
-                <div className="bg-slate-200 p-8 rounded-[2.5rem] text-center space-y-2">
-                   <p className="text-slate-500 font-bold uppercase text-xs tracking-widest">Link de Acesso</p>
-                   <p className="font-black text-slate-900">{typeof window !== 'undefined' ? window.location.host : ''}/play</p>
+                
+                <div className="bg-slate-200 p-6 rounded-[2.5rem] text-center space-y-4 flex flex-col items-center shadow-inner">
+                   <div className="bg-white p-4 rounded-3xl shadow-lg border-2 border-white">
+                      <img 
+                        src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(joinUrl)}`}
+                        alt="Acesso rápido via QR Code"
+                        className="w-32 h-32"
+                      />
+                   </div>
+                   <div className="space-y-1">
+                      <p className="text-slate-500 font-bold uppercase text-[10px] tracking-widest leading-none">Acesso Rápido</p>
+                      <p className="font-black text-slate-900 text-xs">Aponte a câmera para entrar</p>
+                   </div>
                 </div>
               </div>
             </div>
