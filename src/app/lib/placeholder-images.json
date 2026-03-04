@@ -1,0 +1,16 @@
+{
+  "placeholderImages": [
+    {
+      "id": "hero-bg",
+      "description": "Engaging abstract background with quiz elements",
+      "imageUrl": "https://picsum.photos/seed/quiz-hero/1200/600",
+      "imageHint": "abstract quiz"
+    },
+    {
+      "id": "default-quiz",
+      "description": "Default thumbnail for a quiz",
+      "imageUrl": "https://picsum.photos/seed/quiz-thumb/400/300",
+      "imageHint": "education quiz"
+    }
+  ]
+}

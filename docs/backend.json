@@ -1,0 +1,80 @@
+
+{
+  "entities": {
+    "Quiz": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "Quiz",
+      "type": "object",
+      "description": "Representa um quiz que pode ser jogado ao vivo ou como desafio assíncrono.",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "questions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string" },
+              "question": { "type": "string" },
+              "alternatives": { "type": "array", "items": { "type": "string" } },
+              "correctAnswerIndex": { "type": "number" },
+              "timeLimitSeconds": { "type": "number" },
+              "basePoints": { "type": "number" }
+            }
+          }
+        },
+        "isPublishedAsChallenge": { "type": "boolean" },
+        "showImmediateFeedback": { "type": "boolean", "description": "Se verdadeiro, os jogadores veem se acertaram logo após responder. Se falso, apenas quando o host revelar." },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "createdByUserId": { "type": "string" }
+      },
+      "required": ["title", "questions", "createdAt", "createdByUserId"]
+    },
+    "ChallengeResult": {
+      "title": "ChallengeResult",
+      "type": "object",
+      "description": "Registro de desempenho de um usuário em um desafio assíncrono.",
+      "properties": {
+        "challengeId": { "type": "string" },
+        "nickname": { "type": "string" },
+        "score": { "type": "number" },
+        "correctAnswers": { "type": "number" },
+        "totalTime": { "type": "number" },
+        "timestamp": { "type": "number" }
+      }
+    },
+    "HostProfile": {
+      "title": "HostProfile",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string" },
+        "displayName": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "active", "blocked"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      }
+    }
+  },
+  "auth": {
+    "providers": ["password", "anonymous"]
+  },
+  "firestore": {
+    "/quizzes/{quizId}": {
+      "schema": "Quiz",
+      "description": "Definições dos quizzes."
+    },
+    "/hosts/{uid}": {
+      "schema": "HostProfile",
+      "description": "Perfis de hosts."
+    },
+    "/challengeResults/{resultId}": {
+      "schema": "ChallengeResult",
+      "description": "Resultados das provas assíncronas."
+    },
+    "/gameRooms/{pin}": {
+      "schema": { "type": "object" },
+      "description": "Salas de jogo ao vivo."
+    }
+  }
+}

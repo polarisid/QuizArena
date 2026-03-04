@@ -1,0 +1,63 @@
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // --- Helper Functions ---
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && exists(/databases/$(database)/documents/admin_roles/$(request.auth.uid));
+    }
+
+    function isHostActive() {
+      let hostDoc = get(/databases/$(database)/documents/hosts/$(request.auth.uid));
+      return isSignedIn() && hostDoc != null && hostDoc.data.status == 'active';
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    // --- Collection Rules ---
+
+    match /admin_roles/{uid} {
+      allow read: if isSignedIn();
+      allow write: if false; 
+    }
+
+    match /hosts/{uid} {
+      allow read: if isSignedIn() && (isOwner(uid) || isAdmin());
+      allow create: if isSignedIn() && isOwner(uid) && request.resource.data.status == 'pending';
+      allow update: if isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    match /quizzes/{quizId} {
+      // Leitura pública para permitir acesso à Home e aos Desafios
+      allow read: if true;
+      allow create: if isHostActive();
+      allow update, delete: if (isSignedIn() && resource.data.createdByUserId == request.auth.uid) || isAdmin();
+    }
+
+    match /gameRooms/{pin} {
+      // Aberto para permitir fluxo de jogo ao vivo simplificado (PIN)
+      allow read, create, update: if true; 
+      // Permitir que qualquer usuário logado encerre a sala (simplificado para MVP)
+      allow delete: if isSignedIn();
+    }
+
+    match /challengeResults/{resultId} {
+      // Permitir explicitamente leitura e criação para todos
+      allow read, create: if true;
+      allow update, delete: if isAdmin();
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
