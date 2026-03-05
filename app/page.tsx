@@ -1,8 +1,8 @@
 
 "use client";
 
-import React, { useState } from "react";
-import { useRouter } from "next/navigation";
+import React, { useState, useEffect, Suspense } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
@@ -10,12 +10,21 @@ import { Trophy, Play, FileText, Loader2 } from "lucide-react";
 import { useUser } from "@/firebase";
 import Link from "next/link";
 
-export default function Home() {
+function HomeContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { user, isUserLoading } = useUser();
   const [livePin, setLivePin] = useState("");
   const [liveNickname, setLiveNickname] = useState("");
   const [challengeId, setChallengeId] = useState("");
+
+  // Preenche o PIN automaticamente se vier do QR Code
+  useEffect(() => {
+    const pinFromUrl = searchParams.get("pin");
+    if (pinFromUrl) {
+      setLivePin(pinFromUrl);
+    }
+  }, [searchParams]);
 
   const handleJoinLive = (e: React.FormEvent) => {
     e.preventDefault();
@@ -155,9 +164,20 @@ export default function Home() {
               <Trophy className="w-5 h-5" />
               <span className="font-bold">QuizArena v2.0</span>
             </div>
-            <p className="text-slate-400 text-sm">© 2024 QuizArena. Privado e Seguro.</p>
+            <div className="text-slate-400 text-sm space-y-1">
+              <p>© 2025 QuizArena. Desenvolvido por Daniel Carvalho.</p>
+              <p>Privado e Seguro.</p>
+            </div>
          </div>
       </footer>
     </div>
+  );
+}
+
+export default function Home() {
+  return (
+    <Suspense fallback={<div className="min-h-screen flex items-center justify-center"><Loader2 className="animate-spin" /></div>}>
+      <HomeContent />
+    </Suspense>
   );
 }

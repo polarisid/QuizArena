@@ -1,3 +1,4 @@
+
 "use client";
 
 import React, { useState, useEffect } from "react";
@@ -53,9 +54,14 @@ export default function ChallengePlay() {
         if (quiz) {
           const currentQ = quiz.questions[currentQIndex];
           const basePoints = currentQ.basePoints || 1000;
-          const ratio = Math.max(0, nextTime / currentQ.timeLimitSeconds);
-          const potential = Math.round(basePoints * (0.5 + 0.5 * ratio));
-          setCurrentPotential(potential);
+          
+          if (quiz.decreasePointsOverTime === false) {
+            setCurrentPotential(basePoints);
+          } else {
+            const ratio = Math.max(0, nextTime / currentQ.timeLimitSeconds);
+            const potential = Math.round(basePoints * (0.5 + 0.5 * ratio));
+            setCurrentPotential(potential);
+          }
         }
 
         if (nextTime <= 0) {
@@ -111,7 +117,7 @@ export default function ChallengePlay() {
     const payload = {
       challengeId: id,
       nickname,
-      score,
+      score: Math.round(score),
       correctAnswers: correctCount,
       totalTime: Math.round(totalTimeTaken),
       timestamp: Date.now()
@@ -137,14 +143,14 @@ export default function ChallengePlay() {
           <div className="flex items-center justify-between mb-4">
             <div className="flex flex-col">
               <span className="text-xs uppercase font-black text-slate-400">Total</span>
-              <span className="font-black text-2xl text-primary">{score}</span>
+              <span className="font-black text-2xl text-primary">{Math.round(score)}</span>
             </div>
             
             {!isAnswering && (
-              <div className="flex flex-col items-center bg-yellow-500 text-white px-8 py-2 rounded-2xl border-b-4 border-yellow-700 shadow-xl animate-pulse">
-                <span className="text-[10px] uppercase font-black opacity-80">Vale agora</span>
+              <div className={`flex flex-col items-center px-8 py-2 rounded-2xl border-b-4 shadow-xl transition-all ${quiz.decreasePointsOverTime !== false ? 'bg-yellow-500 border-yellow-700 text-white animate-pulse' : 'bg-slate-900 border-slate-700 text-white'}`}>
+                <span className="text-[10px] uppercase font-black opacity-80">{quiz.decreasePointsOverTime !== false ? 'Vale agora' : 'Valor da Questão'}</span>
                 <div className="flex items-center gap-1">
-                  <Coins className="w-5 h-5" />
+                  <Coins className="w-5 h-5 text-yellow-400" />
                   <span className="font-black text-3xl">{currentPotential}</span>
                 </div>
               </div>
@@ -244,7 +250,7 @@ export default function ChallengePlay() {
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="bg-slate-50 p-6 rounded-2xl">
-                <p className="text-4xl font-black text-primary">{score}</p>
+                <p className="text-4xl font-black text-primary">{Math.round(score)}</p>
                 <p className="text-xs font-bold text-slate-400 uppercase">Pontos</p>
               </div>
               <div className="bg-slate-50 p-6 rounded-2xl">

@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useEffect, useState } from 'react';
@@ -56,11 +57,16 @@ export default function PlayerLiveGame() {
         
         setTimeLeft(Math.ceil(remaining));
 
-        // Cálculo dinâmico da pontuação atual (Premia velocidade, mín 50% dos basePoints)
         const basePoints = currentQ.basePoints || 1000;
-        const ratio = remaining / currentQ.timeLimitSeconds;
-        const potential = Math.round(basePoints * (0.5 + 0.5 * ratio));
-        setCurrentPotential(potential);
+        
+        if (quiz.decreasePointsOverTime === false) {
+          setCurrentPotential(basePoints);
+        } else {
+          // Cálculo dinâmico da pontuação atual (Premia velocidade, mín 50% dos basePoints)
+          const ratio = remaining / currentQ.timeLimitSeconds;
+          const potential = Math.round(basePoints * (0.5 + 0.5 * ratio));
+          setCurrentPotential(potential);
+        }
         
         if (remaining <= 0 && !hasAnswered) {
           handleAnswer(-1);
@@ -110,7 +116,7 @@ export default function PlayerLiveGame() {
       points = currentPotential;
       const scoreKey = `players.${safeNickname}.score`;
       const currentScore = room.players[safeNickname]?.score || 0;
-      const payload = { [scoreKey]: currentScore + points };
+      const payload = { [scoreKey]: Math.round(currentScore + points) };
       
       updateDoc(roomRef!, payload).catch(async () => {
         errorEmitter.emit('permission-error', new FirestorePermissionError({
@@ -156,10 +162,10 @@ export default function PlayerLiveGame() {
         </div>
 
         {room.status === 'question' && (
-          <div className="flex flex-col items-center bg-yellow-500 text-primary px-6 py-2 rounded-2xl shadow-2xl border-b-4 border-yellow-700">
-            <span className="text-[10px] uppercase font-black opacity-80">Vale agora</span>
+          <div className={`flex flex-col items-center px-6 py-2 rounded-2xl shadow-2xl border-b-4 transition-all ${quiz.decreasePointsOverTime !== false ? 'bg-yellow-500 border-yellow-700 text-primary' : 'bg-white border-slate-200 text-primary'}`}>
+            <span className="text-[10px] uppercase font-black opacity-80">{quiz.decreasePointsOverTime !== false ? 'Vale agora' : 'Valor Questão'}</span>
             <div className="flex items-center gap-1">
-              <Coins className="w-5 h-5" />
+              <Coins className={`w-5 h-5 ${quiz.decreasePointsOverTime !== false ? 'text-primary' : 'text-yellow-500'}`} />
               <span className="text-2xl font-black">{currentPotential}</span>
             </div>
           </div>

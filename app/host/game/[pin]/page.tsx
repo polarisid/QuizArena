@@ -1,16 +1,28 @@
+
 'use client';
 
 import React, { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { useFirestore, useDoc, useUser } from '@/firebase';
-import { doc, deleteDoc, updateDoc } from 'firebase/firestore';
+import { useFirestore, useDoc, useUser, deleteDocumentNonBlocking } from '@/firebase';
+import { doc, updateDoc } from 'firebase/firestore';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Trophy, Users, Play, SkipForward, Loader2, LogOut, Timer, Coins, ArrowLeft } from 'lucide-react';
+import { Trophy, Users, Play, SkipForward, Loader2, LogOut, Timer, Coins, ArrowLeft, Zap } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { useMemoFirebase } from '@/firebase/provider';
 import { useToast } from '@/hooks/use-toast';
 import { Progress } from '@/components/ui/progress';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 
 export default function HostGameControl() {
   const { pin } = useParams();
@@ -20,7 +32,6 @@ export default function HostGameControl() {
   const { toast } = useToast();
   const [timeLeft, setTimeLeft] = useState<number>(0);
   const [currentPotential, setCurrentPotential] = useState<number>(0);
-  const [isFinishing, setIsFinishing] = useState(false);
 
   // Proteção de rota
   useEffect(() => {
@@ -45,12 +56,12 @@ export default function HostGameControl() {
 
   const players = room?.players ? Object.values(room.players) : [];
 
-  // Redirecionamento automático se a sala for deletada (por este host ou via painel)
+  // Redirecionamento REATIVO: Se a sala for deletada, sai da página imediatamente
   useEffect(() => {
-    if (pin && !isRoomLoading && room === null && !isFinishing) {
+    if (pin && !isRoomLoading && room === null) {
       router.push('/host');
     }
-  }, [room, isRoomLoading, router, pin, isFinishing]);
+  }, [room, isRoomLoading, router, pin]);
 
   // Cronômetro do Host e Cálculo de Pontuação Dinâmica
   useEffect(() => {
@@ -63,11 +74,15 @@ export default function HostGameControl() {
         
         setTimeLeft(Math.ceil(remaining));
 
-        // Cálculo da pontuação que diminui com o tempo (Mínimo 50% do valor base)
         const basePoints = currentQ.basePoints || 1000;
-        const ratio = remaining / currentQ.timeLimitSeconds;
-        const potential = Math.round(basePoints * (0.5 + 0.5 * ratio));
-        setCurrentPotential(potential);
+        
+        if (quiz.decreasePointsOverTime === false) {
+          setCurrentPotential(basePoints);
+        } else {
+          const ratio = remaining / currentQ.timeLimitSeconds;
+          const potential = Math.round(basePoints * (0.5 + 0.5 * ratio));
+          setCurrentPotential(potential);
+        }
       };
       updateTimer();
       interval = setInterval(updateTimer, 100);
@@ -99,37 +114,41 @@ export default function HostGameControl() {
     updateDoc(roomRef, { status: 'results' });
   };
 
-  const handleFinishGame = async () => {
-    if (!window.confirm('Deseja encerrar esta arena permanentemente?')) return;
-    
-    setIsFinishing(true);
+  const handleConfirmFinish = () => {
     if (roomRef) {
-      // Dispara a exclusão e redireciona imediatamente
-      deleteDoc(roomRef).catch(() => {});
-      toast({ title: "Arena encerrada com sucesso" });
-      router.push('/host');
+      deleteDocumentNonBlocking(roomRef);
+      toast({ title: "Arena encerrada!" });
     } else {
       router.push('/host');
     }
   };
 
-  if (isRoomLoading || isQuizLoading || isAuthLoading || isFinishing) {
+  if (isRoomLoading || isQuizLoading || isAuthLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50">
         <div className="text-center space-y-4">
           <Loader2 className="w-10 h-10 animate-spin text-primary mx-auto" />
-          <p className="text-muted-foreground font-bold animate-pulse">
-            {isFinishing ? 'ENCERRANDO ARENA...' : 'CARREGANDO ARENA...'}
-          </p>
+          <p className="text-muted-foreground font-bold animate-pulse">CARREGANDO ARENA...</p>
         </div>
       </div>
     );
   }
 
-  if (!room || !user) return null;
+  // Se a sala não existe, mostramos uma tela de transição enquanto o useEffect redireciona
+  if (!room || !user) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-50">
+        <div className="text-center space-y-4">
+          <Loader2 className="w-10 h-10 animate-spin text-primary mx-auto" />
+          <p className="text-muted-foreground font-bold">Encerrando...</p>
+        </div>
+      </div>
+    );
+  }
 
   const currentQ = quiz?.questions[room.currentQuestionIndex];
   const timeProgress = currentQ ? (timeLeft / currentQ.timeLimitSeconds) * 100 : 0;
+  const joinUrl = typeof window !== 'undefined' ? `${window.location.origin}/?pin=${pin}` : '';
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col">
@@ -143,11 +162,28 @@ export default function HostGameControl() {
             <Badge variant="outline" className="font-bold border-slate-200">PIN: {pin}</Badge>
           </div>
         </div>
-        <div className="flex gap-3">
-           <Button variant="outline" size="sm" onClick={handleFinishGame} className="font-bold rounded-xl text-destructive hover:bg-destructive/5 border-destructive/20">
-             <LogOut className="w-4 h-4 mr-2" /> Encerrar Arena
-           </Button>
-        </div>
+        
+        <AlertDialog>
+          <AlertDialogTrigger asChild>
+            <Button variant="outline" size="sm" className="font-bold rounded-xl text-destructive hover:bg-destructive/5 border-destructive/20">
+              <LogOut className="w-4 h-4 mr-2" /> Encerrar Arena
+            </Button>
+          </AlertDialogTrigger>
+          <AlertDialogContent className="rounded-3xl border-2">
+            <AlertDialogHeader>
+              <AlertDialogTitle className="text-2xl font-black">Encerrar Arena?</AlertDialogTitle>
+              <AlertDialogDescription className="text-lg">
+                Isso removerá a arena para todos os jogadores. Certifique-se de que todos viram os resultados!
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter className="mt-4">
+              <AlertDialogCancel className="rounded-xl font-bold">Cancelar</AlertDialogCancel>
+              <AlertDialogAction onClick={handleConfirmFinish} className="bg-destructive text-white hover:bg-destructive/90 rounded-xl font-black">
+                Encerrar Agora
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </header>
 
       <main className="flex-1 container mx-auto px-6 py-12 max-w-5xl space-y-10">
@@ -188,9 +224,19 @@ export default function HostGameControl() {
                      <Play className="w-8 h-8 mr-3 fill-current" /> INICIAR
                    </Button>
                 </Card>
-                <div className="bg-slate-200 p-8 rounded-[2.5rem] text-center space-y-2">
-                   <p className="text-slate-500 font-bold uppercase text-xs tracking-widest">Link de Acesso</p>
-                   <p className="font-black text-slate-900">{typeof window !== 'undefined' ? window.location.host : ''}/play</p>
+                
+                <div className="bg-slate-200 p-6 rounded-[2.5rem] text-center space-y-4 flex flex-col items-center shadow-inner">
+                   <div className="bg-white p-4 rounded-3xl shadow-lg border-2 border-white">
+                      <img 
+                        src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(joinUrl)}`}
+                        alt="Acesso rápido via QR Code"
+                        className="w-32 h-32"
+                      />
+                   </div>
+                   <div className="space-y-1">
+                      <p className="text-slate-500 font-bold uppercase text-[10px] tracking-widest leading-none">Acesso Rápido</p>
+                      <p className="font-black text-slate-900 text-xs">Aponte a câmera para entrar</p>
+                   </div>
                 </div>
               </div>
             </div>
@@ -203,14 +249,14 @@ export default function HostGameControl() {
               <div className="flex items-center justify-center gap-4">
                  <Badge variant="outline" className="text-xl py-2 px-6 border-primary text-primary font-black rounded-full uppercase">Questão {room.currentQuestionIndex + 1}</Badge>
                  
-                 <div className="flex items-center gap-6 bg-slate-900 text-white px-8 py-3 rounded-full shadow-lg">
-                    <div className="flex items-center gap-2 border-r border-white/20 pr-6">
+                 <div className={`flex items-center gap-6 px-8 py-3 rounded-full shadow-lg transition-all ${quiz?.decreasePointsOverTime !== false ? 'bg-slate-900 text-white' : 'bg-white border-2 border-slate-900 text-slate-900'}`}>
+                    <div className={`flex items-center gap-2 pr-6 border-r ${quiz?.decreasePointsOverTime !== false ? 'border-white/20' : 'border-slate-200'}`}>
                       <Timer className={`w-8 h-8 ${timeLeft <= 5 ? 'text-red-400 animate-pulse' : ''}`} />
                       <span className={`text-3xl font-black ${timeLeft <= 5 ? 'text-red-400' : ''}`}>{timeLeft}s</span>
                     </div>
-                    <div className="flex items-center gap-2 text-yellow-400">
-                      <Coins className="w-8 h-8" />
-                      <span className="text-3xl font-black">{currentPotential} pts</span>
+                    <div className="flex items-center gap-2 text-yellow-500">
+                      <Coins className="w-8 h-8 fill-current" />
+                      <span className="text-3xl font-black">{currentPotential} {quiz?.decreasePointsOverTime !== false ? 'pts' : 'pts fixos'}</span>
                     </div>
                  </div>
               </div>
@@ -304,9 +350,28 @@ export default function HostGameControl() {
                    }
                 </div>
               </div>
-              <Button variant="outline" size="lg" onClick={handleFinishGame} className="h-16 px-12 rounded-2xl font-black border-2 border-slate-200">
-                <ArrowLeft className="w-5 h-5 mr-3" /> ENCERRAR ARENA
-              </Button>
+              
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button variant="outline" size="lg" className="h-16 px-12 rounded-2xl font-black border-2 border-slate-200">
+                    <ArrowLeft className="w-5 h-5 mr-3" /> ENCERRAR ARENA
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent className="rounded-3xl border-2">
+                  <AlertDialogHeader>
+                    <AlertDialogTitle className="text-2xl font-black">Deseja sair?</AlertDialogTitle>
+                    <AlertDialogDescription className="text-lg">
+                      Isso removerá a arena do sistema. Certifique-se de que todos viram o pódio!
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter className="mt-4">
+                    <AlertDialogCancel className="rounded-xl font-bold">Voltar</AlertDialogCancel>
+                    <AlertDialogAction onClick={handleConfirmFinish} className="bg-destructive text-white hover:bg-destructive/90 rounded-xl font-black">
+                      Sair e Encerrar
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
            </div>
         )}
       </main>

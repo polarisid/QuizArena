@@ -17,6 +17,7 @@ export interface Quiz {
   createdByUserId: string;
   isPublishedAsChallenge: boolean;
   showImmediateFeedback?: boolean;
+  decreasePointsOverTime?: boolean;
 }
 
 export interface GamePlayer {
