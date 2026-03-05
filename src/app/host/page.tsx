@@ -11,6 +11,17 @@ import { useToast } from "@/hooks/use-toast";
 import { useUser, useFirestore, useCollection, useDoc, useAuth } from "@/firebase";
 import { useMemoFirebase } from "@/firebase/provider";
 import { Badge } from "@/components/ui/badge";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 
 export default function HostDashboard() {
   const { user, isUserLoading } = useUser();
@@ -20,6 +31,7 @@ export default function HostDashboard() {
   const { toast } = useToast();
   const [isCreatingRoom, setIsCreatingRoom] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [isDeletingId, setIsDeletingId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!isUserLoading && !user) {
@@ -47,12 +59,14 @@ export default function HostDashboard() {
   const { data: quizzes, isLoading: isQuizzesLoading } = useCollection(quizzesQuery);
 
   const handleDelete = async (id: string) => {
-    if (!confirm("Tem certeza que deseja excluir este quiz?")) return;
+    setIsDeletingId(id);
     try {
       await deleteDoc(doc(db, "quizzes", id));
       toast({ title: "Quiz excluído com sucesso" });
     } catch (error) {
       toast({ title: "Erro ao excluir quiz", variant: "destructive" });
+    } finally {
+      setIsDeletingId(null);
     }
   };
 
@@ -251,9 +265,33 @@ export default function HostDashboard() {
                         <Button size="icon" variant="ghost" className="rounded-lg" asChild title="Editar">
                           <Link href={`/host/quiz/edit/${quiz.id}`}><Edit className="w-4 h-4" /></Link>
                         </Button>
-                        <Button size="icon" variant="ghost" onClick={() => handleDelete(quiz.id)} className="rounded-lg text-destructive hover:bg-destructive/5" title="Excluir">
-                          <Trash2 className="w-4 h-4" />
-                        </Button>
+                        
+                        <AlertDialog>
+                          <AlertDialogTrigger asChild>
+                            <Button size="icon" variant="ghost" className="rounded-lg text-destructive hover:bg-destructive/5" title="Excluir">
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          </AlertDialogTrigger>
+                          <AlertDialogContent className="rounded-3xl border-2">
+                            <AlertDialogHeader>
+                              <AlertDialogTitle className="text-2xl font-black">Excluir este quiz?</AlertDialogTitle>
+                              <AlertDialogDescription className="text-lg text-slate-500">
+                                Esta ação não pode ser desfeita. Todas as questões e configurações de "<strong>{quiz.title}</strong>" serão removidas permanentemente.
+                              </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter className="mt-6">
+                              <AlertDialogCancel className="rounded-xl font-bold h-12">Cancelar</AlertDialogCancel>
+                              <AlertDialogAction 
+                                onClick={() => handleDelete(quiz.id)} 
+                                className="bg-destructive text-white hover:bg-destructive/90 rounded-xl font-black h-12 px-8"
+                                disabled={isDeletingId === quiz.id}
+                              >
+                                {isDeletingId === quiz.id ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Trash2 className="w-4 h-4 mr-2" />}
+                                Sim, Excluir Realmente
+                              </AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
                       </div>
                     </div>
                   </div>
