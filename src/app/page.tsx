@@ -9,6 +9,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Trophy, Play, FileText, Loader2 } from "lucide-react";
 import { useUser } from "@/firebase";
 import Link from "next/link";
+import { PlaceHolderImages } from "@/lib/placeholder-images";
 
 function HomeContent() {
   const router = useRouter();
@@ -17,6 +18,9 @@ function HomeContent() {
   const [livePin, setLivePin] = useState("");
   const [liveNickname, setLiveNickname] = useState("");
   const [challengeId, setChallengeId] = useState("");
+
+  // Busca a imagem de capa centralizada no JSON
+  const heroImage = PlaceHolderImages.find(img => img.id === 'hero-landing');
 
   // Preenche o PIN automaticamente se vier do QR Code
   useEffect(() => {
@@ -148,12 +152,16 @@ function HomeContent() {
 
           <div className="relative hidden lg:block">
              <div className="absolute -inset-10 bg-primary/10 blur-[100px] rounded-full"></div>
-             <img 
-               src="https://picsum.photos/seed/quiz-arena/1000/800" 
-               alt="Hero" 
-               className="relative rounded-[2rem] shadow-2xl border-8 border-white transform rotate-2 hover:rotate-0 transition-transform duration-500"
-               data-ai-hint="educational gaming"
-             />
+             {heroImage && (
+               <img 
+                 src={heroImage.imageUrl} 
+                 alt={heroImage.description} 
+                 className="relative rounded-[2rem] shadow-2xl border-8 border-white transform rotate-2 hover:rotate-0 transition-transform duration-500"
+                 data-ai-hint={heroImage.imageHint}
+                 width={1000}
+                 height={800}
+               />
+             )}
           </div>
         </div>
       </main>

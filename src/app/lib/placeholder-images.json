@@ -1,14 +1,15 @@
+
 {
   "placeholderImages": [
     {
-      "id": "hero-bg",
-      "description": "Engaging abstract background with quiz elements",
-      "imageUrl": "https://picsum.photos/seed/quiz-hero/1200/600",
-      "imageHint": "abstract quiz"
+      "id": "hero-landing",
+      "description": "Imagem de capa principal da arena de quiz",
+      "imageUrl": "https://picsum.photos/seed/quiz-arena-hero/1000/800",
+      "imageHint": "technology education"
     },
     {
       "id": "default-quiz",
-      "description": "Default thumbnail for a quiz",
+      "description": "Thumbnail padrão para um quiz",
       "imageUrl": "https://picsum.photos/seed/quiz-thumb/400/300",
       "imageHint": "education quiz"
     }

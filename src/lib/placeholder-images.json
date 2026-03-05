@@ -1,3 +1,16 @@
 {
-  "placeholderImages": []
+  "placeholderImages": [
+    {
+      "id": "hero-landing",
+      "description": "Imagem de capa principal da arena de quiz",
+      "imageUrl": "https://img.freepik.com/fotos-premium/mulheres-sentadas-a-mesa-em-casa_1048944-11579091.jpg?semt=ais_hybrid&w=740&q=80",
+      "imageHint": "technology education"
+    },
+    {
+      "id": "default-quiz",
+      "description": "Thumbnail padrão para um quiz",
+      "imageUrl": "https://img.freepik.com/fotos-premium/mulher-e-homem-fazendo-negocios-na-sala-de-conferencias_386185-3923.jpg?semt=ais_hybrid&w=740&q=80",
+      "imageHint": "education quiz"
+    }
+  ]
 }
