@@ -1,15 +1,15 @@
-
 'use client';
 
 import React, { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { useFirestore, useDoc, useUser, deleteDocumentNonBlocking } from '@/firebase';
-import { doc, updateDoc } from 'firebase/firestore';
+import { getSupabaseBrowserClient } from '@/lib/supabase/client';
+import { useSupabaseAuth } from '@/lib/supabase/auth-context';
+import { useLiveSession } from '@/lib/supabase/use-live-session';
+import type { Question, QuizSettings } from '@/lib/supabase/types';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Trophy, Users, Play, SkipForward, Loader2, LogOut, Timer, Coins, ArrowLeft, Zap } from 'lucide-react';
+import { Trophy, Users, Play, SkipForward, Loader2, LogOut, Timer, Coins, ArrowLeft, WifiOff } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
-import { useMemoFirebase } from '@/firebase/provider';
 import { useToast } from '@/hooks/use-toast';
 import { Progress } from '@/components/ui/progress';
 import {
@@ -26,105 +26,102 @@ import {
 
 export default function HostGameControl() {
   const { pin } = useParams();
-  const { user, isUserLoading: isAuthLoading } = useUser();
-  const db = useFirestore();
+  const { user, isLoading: isAuthLoading } = useSupabaseAuth();
   const router = useRouter();
   const { toast } = useToast();
+
+  const { session, players, isLoading: isSessionLoading, isMissing, isReconnecting } =
+    useLiveSession(pin as string);
+
+  const [quizTitle, setQuizTitle] = useState('');
+  const [quizSettings, setQuizSettings] = useState<QuizSettings>({});
+  const [questions, setQuestions] = useState<Question[]>([]);
+  const [isQuizLoading, setIsQuizLoading] = useState(true);
   const [timeLeft, setTimeLeft] = useState<number>(0);
   const [currentPotential, setCurrentPotential] = useState<number>(0);
 
   // Proteção de rota
   useEffect(() => {
-    if (!isAuthLoading && !user) {
-      router.push('/login');
-    }
+    if (!isAuthLoading && !user) router.push('/login');
   }, [user, isAuthLoading, router]);
 
-  const roomRef = useMemoFirebase(() => {
-    if (!db || !pin) return null;
-    return doc(db, 'gameRooms', pin as string);
-  }, [db, pin]);
-
-  const { data: room, isLoading: isRoomLoading, isMissing: isRoomMissing } = useDoc(roomRef);
-
-  const quizRef = useMemoFirebase(() => {
-    if (!db || !room?.quizId) return null;
-    return doc(db, 'quizzes', room.quizId);
-  }, [db, room?.quizId]);
-
-  const { data: quiz, isLoading: isQuizLoading } = useDoc(quizRef);
-
-  const players = room?.players ? Object.values(room.players) : [];
-
-  // Redirecionamento REATIVO: só sai da página quando o servidor confirma que a
-  // sala foi removida (isRoomMissing), nunca por um erro transitório de conexão.
+  // Sai da página quando a sala é confirmada como removida
   useEffect(() => {
-    if (pin && isRoomMissing) {
-      router.push('/host');
+    if (isMissing) router.push('/host');
+  }, [isMissing, router]);
+
+  // Carrega quiz + questões quando a sessão aparece
+  useEffect(() => {
+    async function loadQuiz() {
+      if (!session?.quiz_id) return;
+      const supabase = getSupabaseBrowserClient();
+      const [{ data: quiz }, { data: qs }] = await Promise.all([
+        supabase.from('quizzes').select('title, settings').eq('id', session.quiz_id).maybeSingle(),
+        supabase.from('questions').select('*').eq('quiz_id', session.quiz_id).order('position', { ascending: true }),
+      ]);
+      if (quiz) { setQuizTitle(quiz.title); setQuizSettings(quiz.settings || {}); }
+      if (qs) setQuestions(qs as Question[]);
+      setIsQuizLoading(false);
     }
-  }, [isRoomMissing, router, pin]);
+    loadQuiz();
+  }, [session?.quiz_id]);
 
-  // Cronômetro do Host e Cálculo de Pontuação Dinâmica
+  const currentQ = session ? questions[session.current_question_index] : undefined;
+
+  // Cronômetro do host + pontuação dinâmica (relógio local só para exibição)
   useEffect(() => {
-    let interval: NodeJS.Timeout;
-    if (room?.status === 'question' && room?.questionStartTime && quiz) {
-      const currentQ = quiz.questions[room.currentQuestionIndex];
-      const updateTimer = () => {
-        const elapsed = (Date.now() - room.questionStartTime!) / 1000;
-        const remaining = Math.max(0, currentQ.timeLimitSeconds - elapsed);
-        
+    let interval: ReturnType<typeof setInterval> | undefined;
+    if (session?.status === 'question' && session.question_started_at && currentQ) {
+      const startedAt = new Date(session.question_started_at).getTime();
+      const update = () => {
+        const elapsed = (Date.now() - startedAt) / 1000;
+        const remaining = Math.max(0, currentQ.time_limit_seconds - elapsed);
         setTimeLeft(Math.ceil(remaining));
-
-        const basePoints = currentQ.basePoints || 1000;
-        
-        if (quiz.decreasePointsOverTime === false) {
-          setCurrentPotential(basePoints);
+        const base = currentQ.base_points || 1000;
+        if (quizSettings.decreasePointsOverTime === false) {
+          setCurrentPotential(base);
         } else {
-          const ratio = remaining / currentQ.timeLimitSeconds;
-          const potential = Math.round(basePoints * (0.5 + 0.5 * ratio));
-          setCurrentPotential(potential);
+          const ratio = remaining / currentQ.time_limit_seconds;
+          setCurrentPotential(Math.round(base * (0.5 + 0.5 * ratio)));
         }
       };
-      updateTimer();
-      interval = setInterval(updateTimer, 100);
+      update();
+      interval = setInterval(update, 100);
     }
-    return () => clearInterval(interval);
-  }, [room?.status, room?.questionStartTime, room?.currentQuestionIndex, quiz]);
+    return () => { if (interval) clearInterval(interval); };
+  }, [session?.status, session?.question_started_at, session?.current_question_index, currentQ, quizSettings]);
 
-  const handleStartGame = () => {
-    if (!roomRef) return;
-    updateDoc(roomRef, {
-      status: 'question',
-      currentQuestionIndex: 0,
-      questionStartTime: Date.now()
-    });
+  const patchSession = async (patch: Record<string, any>) => {
+    if (!session) return;
+    const supabase = getSupabaseBrowserClient();
+    const { error } = await supabase.from('game_sessions').update(patch).eq('id', session.id);
+    if (error) toast({ title: 'Erro ao atualizar a partida', variant: 'destructive' });
   };
+
+  const handleStartGame = () =>
+    patchSession({ status: 'question', current_question_index: 0, question_started_at: new Date().toISOString() });
 
   const handleNextQuestion = () => {
-    if (!roomRef || !quiz || !room) return;
-    const nextIndex = room.currentQuestionIndex + 1;
-    const payload = nextIndex < quiz.questions.length 
-      ? { status: 'question', currentQuestionIndex: nextIndex, questionStartTime: Date.now() }
-      : { status: 'podium' };
-
-    updateDoc(roomRef, payload);
-  };
-
-  const handleShowResults = () => {
-    if (!roomRef) return;
-    updateDoc(roomRef, { status: 'results' });
-  };
-
-  const handleConfirmFinish = () => {
-    if (roomRef) {
-      deleteDocumentNonBlocking(roomRef);
-      toast({ title: "Arena encerrada!" });
+    if (!session) return;
+    const nextIndex = session.current_question_index + 1;
+    if (nextIndex < questions.length) {
+      patchSession({ status: 'question', current_question_index: nextIndex, question_started_at: new Date().toISOString() });
     } else {
-      router.push('/host');
+      patchSession({ status: 'podium' });
     }
   };
 
-  if (isRoomLoading || isQuizLoading || isAuthLoading) {
+  const handleShowResults = () => patchSession({ status: 'results' });
+
+  const handleConfirmFinish = async () => {
+    if (!session) { router.push('/host'); return; }
+    const supabase = getSupabaseBrowserClient();
+    await supabase.from('game_sessions').delete().eq('id', session.id);
+    toast({ title: 'Arena encerrada!' });
+    router.push('/host');
+  };
+
+  if (isAuthLoading || isSessionLoading || isQuizLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50">
         <div className="text-center space-y-4">
@@ -135,8 +132,7 @@ export default function HostGameControl() {
     );
   }
 
-  // Se a sala não existe, mostramos uma tela de transição enquanto o useEffect redireciona
-  if (!room || !user) {
+  if (!session || !user) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50">
         <div className="text-center space-y-4">
@@ -147,23 +143,27 @@ export default function HostGameControl() {
     );
   }
 
-  const currentQ = quiz?.questions[room.currentQuestionIndex];
-  const timeProgress = currentQ ? (timeLeft / currentQ.timeLimitSeconds) * 100 : 0;
+  const timeProgress = currentQ ? (timeLeft / currentQ.time_limit_seconds) * 100 : 0;
   const joinUrl = typeof window !== 'undefined' ? `${window.location.origin}/?pin=${pin}` : '';
+  const decrease = quizSettings.decreasePointsOverTime !== false;
+  const sortedPlayers = [...players].sort((a, b) => b.score - a.score);
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col">
+      {isReconnecting && (
+        <div className="bg-yellow-500 text-slate-900 text-center py-1.5 text-xs font-black uppercase tracking-wide flex items-center justify-center gap-2">
+          <WifiOff className="w-3.5 h-3.5" /> Reconectando à arena...
+        </div>
+      )}
       <header className="px-8 py-5 flex items-center justify-between border-b bg-white shadow-sm sticky top-0 z-50">
         <div className="flex items-center gap-6">
-          <div className="bg-primary p-2 rounded-xl">
-             <Trophy className="text-white w-6 h-6" />
-          </div>
+          <div className="bg-primary p-2 rounded-xl"><Trophy className="text-white w-6 h-6" /></div>
           <div>
-            <h1 className="text-2xl font-black text-slate-900 leading-none mb-1">{quiz?.title}</h1>
+            <h1 className="text-2xl font-black text-slate-900 leading-none mb-1">{quizTitle}</h1>
             <Badge variant="outline" className="font-bold border-slate-200">PIN: {pin}</Badge>
           </div>
         </div>
-        
+
         <AlertDialog>
           <AlertDialogTrigger asChild>
             <Button variant="outline" size="sm" className="font-bold rounded-xl text-destructive hover:bg-destructive/5 border-destructive/20">
@@ -188,7 +188,7 @@ export default function HostGameControl() {
       </header>
 
       <main className="flex-1 container mx-auto px-6 py-12 max-w-5xl space-y-10">
-        {room.status === 'waiting' && (
+        {session.status === 'waiting' && (
           <div className="text-center space-y-12 py-10">
             <div className="space-y-4">
               <h2 className="text-2xl font-black text-slate-400 uppercase tracking-widest">Aguardando na Arena...</h2>
@@ -204,8 +204,8 @@ export default function HostGameControl() {
                 </CardHeader>
                 <CardContent className="p-8">
                    <div className="flex flex-wrap gap-3 justify-center">
-                     {players.length > 0 ? players.map((p: any, idx) => (
-                       <Badge key={idx} variant="secondary" className="text-xl py-3 px-8 rounded-2xl bg-slate-100 hover:bg-primary hover:text-white transition-colors cursor-default">
+                     {players.length > 0 ? players.map((p) => (
+                       <Badge key={p.id} variant="secondary" className="text-xl py-3 px-8 rounded-2xl bg-slate-100 hover:bg-primary hover:text-white transition-colors cursor-default">
                          {p.nickname}
                        </Badge>
                      )) : (
@@ -225,10 +225,10 @@ export default function HostGameControl() {
                      <Play className="w-8 h-8 mr-3 fill-current" /> INICIAR
                    </Button>
                 </Card>
-                
+
                 <div className="bg-slate-200 p-6 rounded-[2.5rem] text-center space-y-4 flex flex-col items-center shadow-inner">
                    <div className="bg-white p-4 rounded-3xl shadow-lg border-2 border-white">
-                      <img 
+                      <img
                         src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(joinUrl)}`}
                         alt="Acesso rápido via QR Code"
                         className="w-32 h-32"
@@ -244,27 +244,27 @@ export default function HostGameControl() {
           </div>
         )}
 
-        {room.status === 'question' && (
+        {session.status === 'question' && (
           <div className="text-center space-y-12">
             <div className="space-y-6">
               <div className="flex items-center justify-center gap-4">
-                 <Badge variant="outline" className="text-xl py-2 px-6 border-primary text-primary font-black rounded-full uppercase">Questão {room.currentQuestionIndex + 1}</Badge>
-                 
-                 <div className={`flex items-center gap-6 px-8 py-3 rounded-full shadow-lg transition-all ${quiz?.decreasePointsOverTime !== false ? 'bg-slate-900 text-white' : 'bg-white border-2 border-slate-900 text-slate-900'}`}>
-                    <div className={`flex items-center gap-2 pr-6 border-r ${quiz?.decreasePointsOverTime !== false ? 'border-white/20' : 'border-slate-200'}`}>
+                 <Badge variant="outline" className="text-xl py-2 px-6 border-primary text-primary font-black rounded-full uppercase">Questão {session.current_question_index + 1}</Badge>
+
+                 <div className={`flex items-center gap-6 px-8 py-3 rounded-full shadow-lg transition-all ${decrease ? 'bg-slate-900 text-white' : 'bg-white border-2 border-slate-900 text-slate-900'}`}>
+                    <div className={`flex items-center gap-2 pr-6 border-r ${decrease ? 'border-white/20' : 'border-slate-200'}`}>
                       <Timer className={`w-8 h-8 ${timeLeft <= 5 ? 'text-red-400 animate-pulse' : ''}`} />
                       <span className={`text-3xl font-black ${timeLeft <= 5 ? 'text-red-400' : ''}`}>{timeLeft}s</span>
                     </div>
                     <div className="flex items-center gap-2 text-yellow-500">
                       <Coins className="w-8 h-8 fill-current" />
-                      <span className="text-3xl font-black">{currentPotential} {quiz?.decreasePointsOverTime !== false ? 'pts' : 'pts fixos'}</span>
+                      <span className="text-3xl font-black">{currentPotential} {decrease ? 'pts' : 'pts fixos'}</span>
                     </div>
                  </div>
               </div>
-              <h2 className="text-5xl md:text-6xl font-black text-slate-900 tracking-tight leading-tight">{currentQ?.question}</h2>
+              <h2 className="text-5xl md:text-6xl font-black text-slate-900 tracking-tight leading-tight">{currentQ?.prompt}</h2>
               <Progress value={timeProgress} className="h-4 max-w-2xl mx-auto rounded-full bg-slate-200" />
             </div>
-            
+
             <div className="grid grid-cols-2 gap-6 max-w-4xl mx-auto">
                {currentQ?.alternatives.map((alt, idx) => (
                  <div key={idx} className="p-8 rounded-[2rem] border-4 border-slate-100 bg-white text-left font-bold text-2xl flex items-center shadow-sm">
@@ -282,12 +282,12 @@ export default function HostGameControl() {
           </div>
         )}
 
-        {room.status === 'results' && (
+        {session.status === 'results' && (
           <div className="space-y-12">
             <div className="text-center space-y-6">
                <h2 className="text-2xl font-black text-slate-400 uppercase tracking-widest">Resposta Correta</h2>
                <div className="max-w-2xl mx-auto p-10 rounded-[3rem] border-8 border-green-500 bg-green-50 font-black text-4xl shadow-2xl text-green-700">
-                 {currentQ?.alternatives[currentQ.correctAnswerIndex]}
+                 {currentQ?.alternatives[currentQ.correct_index]}
                </div>
             </div>
 
@@ -303,17 +303,13 @@ export default function HostGameControl() {
                       </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                      {players
-                        .sort((a: any, b: any) => b.score - a.score)
-                        .slice(0, 5)
-                        .map((p: any, idx) => (
-                          <tr key={idx} className={idx === 0 ? 'bg-primary/5' : ''}>
-                            <td className="p-6 font-mono font-bold text-slate-400">#{idx + 1}</td>
-                            <td className="p-6 font-black text-xl text-slate-800">{p.nickname}</td>
-                            <td className="p-6 text-right font-black text-2xl text-primary">{Math.round(p.score || 0)}</td>
-                          </tr>
-                        ))
-                      }
+                      {sortedPlayers.slice(0, 5).map((p, idx) => (
+                        <tr key={p.id} className={idx === 0 ? 'bg-primary/5' : ''}>
+                          <td className="p-6 font-mono font-bold text-slate-400">#{idx + 1}</td>
+                          <td className="p-6 font-black text-xl text-slate-800">{p.nickname}</td>
+                          <td className="p-6 text-right font-black text-2xl text-primary">{Math.round(p.score || 0)}</td>
+                        </tr>
+                      ))}
                   </tbody>
                 </table>
               </Card>
@@ -321,13 +317,13 @@ export default function HostGameControl() {
 
             <div className="flex justify-center">
               <Button size="lg" onClick={handleNextQuestion} className="px-16 h-16 text-xl font-black rounded-2xl shadow-xl">
-                {room.currentQuestionIndex + 1 < (quiz?.questions.length || 0) ? 'Próxima Questão' : 'Ver Pódio Final'}
+                {session.current_question_index + 1 < questions.length ? 'Próxima Questão' : 'Ver Pódio Final'}
               </Button>
             </div>
           </div>
         )}
 
-        {room.status === 'podium' && (
+        {session.status === 'podium' && (
            <div className="text-center space-y-16 py-10 animate-in zoom-in-95 duration-700">
               <div className="relative">
                 <Trophy className="w-48 h-48 text-yellow-500 mx-auto animate-bounce-slow" />
@@ -336,22 +332,18 @@ export default function HostGameControl() {
               <div className="space-y-10">
                 <h2 className="text-7xl font-black italic tracking-tighter uppercase text-slate-900">PÓDIO FINAL</h2>
                 <div className="flex flex-col items-center gap-6 max-w-2xl mx-auto">
-                   {players
-                    .sort((a: any, b: any) => b.score - a.score)
-                    .slice(0, 3)
-                    .map((p: any, idx) => (
-                      <div key={idx} className={`w-full p-8 rounded-[3rem] border-4 flex items-center justify-between transition-transform hover:scale-105 ${idx === 0 ? 'bg-yellow-50 border-yellow-200 shadow-2xl scale-110 mb-6' : 'bg-white border-slate-100 shadow-xl'}`}>
+                   {sortedPlayers.slice(0, 3).map((p, idx) => (
+                      <div key={p.id} className={`w-full p-8 rounded-[3rem] border-4 flex items-center justify-between transition-transform hover:scale-105 ${idx === 0 ? 'bg-yellow-50 border-yellow-200 shadow-2xl scale-110 mb-6' : 'bg-white border-slate-100 shadow-xl'}`}>
                         <div className="flex items-center gap-6">
                            <span className={`text-4xl font-black ${idx === 0 ? 'text-yellow-600' : 'text-slate-300'}`}>{idx + 1}º</span>
                            <span className="text-3xl font-black text-slate-800">{p.nickname}</span>
                         </div>
                         <span className={`text-3xl font-black ${idx === 0 ? 'text-primary' : 'text-slate-900'}`}>{Math.round(p.score || 0)} pts</span>
                       </div>
-                    ))
-                   }
+                    ))}
                 </div>
               </div>
-              
+
               <AlertDialog>
                 <AlertDialogTrigger asChild>
                   <Button variant="outline" size="lg" className="h-16 px-12 rounded-2xl font-black border-2 border-slate-200">

@@ -108,6 +108,14 @@ create policy challenge_admin_write on public.challenge_results
   using (exists (select 1 from quizzes q where q.id = quiz_id and is_org_admin(q.org_id)));
 
 -- ============================================================================
+-- Grants — RLS controla as LINHAS, mas os papéis ainda precisam do privilégio
+-- de TABELA. (Evita "permission denied" mesmo com policies corretas.)
+-- ============================================================================
+grant usage on schema public to anon, authenticated;
+grant select, insert, update, delete on all tables in schema public to anon, authenticated;
+grant execute on all functions in schema public to anon, authenticated;
+
+-- ============================================================================
 -- Realtime — publica as tabelas do jogo ao vivo para o canal do Supabase
 -- ============================================================================
 alter publication supabase_realtime add table public.game_sessions;

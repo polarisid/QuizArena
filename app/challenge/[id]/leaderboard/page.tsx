@@ -1,44 +1,50 @@
 
 "use client";
 
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
-import { useFirestore, useDoc, useCollection } from "@/firebase";
-import { collection, query, where, orderBy, limit, doc } from "firebase/firestore";
+import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Trophy, Clock, Medal, ArrowLeft, Loader2, Target, User, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
-import { useMemoFirebase } from "@/firebase/provider";
+
+interface ResultRow {
+  id: string;
+  nickname: string;
+  score: number;
+  correct_answers: number;
+}
 
 export default function ChallengeLeaderboard() {
   const { id } = useParams();
-  const db = useFirestore();
+  const [quizTitle, setQuizTitle] = useState<string>("");
+  const [sortedResults, setSortedResults] = useState<ResultRow[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  // Buscar dados do Quiz
-  const quizRef = useMemoFirebase(() => id ? doc(db, "quizzes", id as string) : null, [db, id]);
-  const { data: quiz, isLoading: isQuizLoading } = useDoc(quizRef);
+  useEffect(() => {
+    async function load() {
+      if (!id) return;
+      const supabase = getSupabaseBrowserClient();
+      const [{ data: quiz }, { data: results, error: resErr }] = await Promise.all([
+        supabase.from("quizzes").select("title").eq("id", id as string).maybeSingle(),
+        supabase
+          .from("challenge_results")
+          .select("id, nickname, score, correct_answers")
+          .eq("quiz_id", id as string)
+          .order("score", { ascending: false })
+          .limit(50),
+      ]);
+      if (quiz) setQuizTitle(quiz.title);
+      if (resErr) setError(resErr.message);
+      else setSortedResults((results as ResultRow[]) || []);
+      setIsLoading(false);
+    }
+    load();
+  }, [id]);
 
-  // Buscar resultados (Top 50)
-  const resultsQuery = useMemoFirebase(() => {
-    if (!db || !id) return null;
-    // Removendo orderBy temporariamente para evitar problemas de índice enquanto as regras propagam
-    return query(
-      collection(db, "challengeResults"),
-      where("challengeId", "==", id),
-      limit(50)
-    );
-  }, [db, id]);
-
-  const { data: results, isLoading: isResultsLoading, error } = useCollection(resultsQuery);
-
-  // Ordenação manual no cliente para garantir que funcione sem índices compostos imediatos
-  const sortedResults = React.useMemo(() => {
-    if (!results) return [];
-    return [...results].sort((a, b) => b.score - a.score);
-  }, [results]);
-
-  if (isQuizLoading || isResultsLoading) return (
+  if (isLoading) return (
     <div className="min-h-screen flex items-center justify-center bg-slate-50">
       <div className="text-center space-y-4">
         <Loader2 className="w-12 h-12 animate-spin text-primary mx-auto" />
@@ -80,7 +86,7 @@ export default function ChallengeLeaderboard() {
           </Button>
           <div className="text-center flex-1">
             <h1 className="text-4xl font-headline font-black text-slate-900 tracking-tight">Arena Leaderboard</h1>
-            <p className="text-primary font-bold text-lg">{quiz?.title || 'Arena Privada'}</p>
+            <p className="text-primary font-bold text-lg">{quizTitle || 'Arena Privada'}</p>
           </div>
           <div className="w-32 hidden md:block"></div>
         </div>
@@ -164,7 +170,7 @@ export default function ChallengeLeaderboard() {
                         <td className="px-8 py-6 font-black text-slate-900">{res.score}</td>
                         <td className="px-8 py-6">
                            <span className="px-3 py-1 bg-green-50 text-green-700 rounded-lg text-sm font-bold border border-green-100">
-                              {res.correctAnswers} acertos
+                              {res.correct_answers} acertos
                            </span>
                         </td>
                       </tr>

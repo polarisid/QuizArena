@@ -1,140 +1,106 @@
-
 'use client';
 
 import React, { useEffect, useState } from 'react';
 import { useParams, useSearchParams, useRouter } from 'next/navigation';
-import { useFirestore, useDoc, errorEmitter, FirestorePermissionError } from '@/firebase';
-import { doc, updateDoc, increment } from 'firebase/firestore';
+import { getSupabaseBrowserClient } from '@/lib/supabase/client';
+import { useLiveSession } from '@/lib/supabase/use-live-session';
+import type { Question, QuizSettings } from '@/lib/supabase/types';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { Trophy, Clock, Loader2, CheckCircle, XCircle, Timer, Send, Coins, WifiOff } from 'lucide-react';
+import { Card, CardTitle, CardDescription } from '@/components/ui/card';
+import { Trophy, Loader2, CheckCircle, XCircle, Timer, Send, Coins, WifiOff } from 'lucide-react';
 import { Progress } from '@/components/ui/progress';
-import { useMemoFirebase } from '@/firebase/provider';
 
 export default function PlayerLiveGame() {
   const { pin } = useParams();
   const searchParams = useSearchParams();
-  const nickname = searchParams.get('nickname');
-  const db = useFirestore();
   const router = useRouter();
+  const nickname = (searchParams.get('nickname') || '').trim();
 
-  const safeNickname = nickname ? nickname.replace(/[.#$/[\]]/g, '_') : '';
+  const { session, players, isMissing, isReconnecting } = useLiveSession(pin as string);
 
+  const [questions, setQuestions] = useState<Question[]>([]);
+  const [quizSettings, setQuizSettings] = useState<QuizSettings>({});
   const [hasAnswered, setHasAnswered] = useState(false);
-  const [answerFeedback, setAnswerFeedback] = useState<{ correct: boolean, points: number } | null>(null);
+  const [answerFeedback, setAnswerFeedback] = useState<{ correct: boolean; points: number } | null>(null);
   const [timeLeft, setTimeLeft] = useState<number>(0);
   const [currentPotential, setCurrentPotential] = useState<number>(0);
 
-  const roomRef = useMemoFirebase(() => {
-    if (!db || !pin) return null;
-    return doc(db, 'gameRooms', pin as string);
-  }, [db, pin]);
+  const myScore = Math.round(players.find((p) => p.nickname === nickname)?.score || 0);
 
-  const { data: room, isLoading: isRoomLoading, isMissing: isRoomMissing, isStale: isRoomStale } = useDoc(roomRef);
+  // Entra na sala assim que a sessão existe
+  useEffect(() => {
+    if (!session || !nickname) return;
+    const supabase = getSupabaseBrowserClient();
+    supabase.rpc('join_game', { p_pin: pin as string, p_nickname: nickname });
+  }, [session?.id, nickname, pin]);
 
-  const quizRef = useMemoFirebase(() => {
-    if (!db || !room?.quizId) return null;
-    return doc(db, 'quizzes', room.quizId);
-  }, [db, room?.quizId]);
+  // Carrega questões + settings do quiz
+  useEffect(() => {
+    async function loadQuiz() {
+      if (!session?.quiz_id) return;
+      const supabase = getSupabaseBrowserClient();
+      const [{ data: quiz }, { data: qs }] = await Promise.all([
+        supabase.from('quizzes').select('settings').eq('id', session.quiz_id).maybeSingle(),
+        supabase.from('questions').select('*').eq('quiz_id', session.quiz_id).order('position', { ascending: true }),
+      ]);
+      if (quiz) setQuizSettings(quiz.settings || {});
+      if (qs) setQuestions(qs as Question[]);
+    }
+    loadQuiz();
+  }, [session?.quiz_id]);
 
-  const { data: quiz, isLoading: isQuizLoading } = useDoc(quizRef);
+  const currentQ = session ? questions[session.current_question_index] : undefined;
 
-  // Reiniciar estado quando mudar a questão
+  // Reinicia o estado ao mudar de questão
   useEffect(() => {
     setHasAnswered(false);
     setAnswerFeedback(null);
-  }, [room?.currentQuestionIndex]);
+  }, [session?.current_question_index]);
 
-  // Cronômetro sincronizado e cálculo de pontos em tempo real
-  useEffect(() => {
-    let interval: NodeJS.Timeout;
-    if (room?.status === 'question' && room?.questionStartTime && quiz) {
-      const currentQ = quiz.questions[room.currentQuestionIndex];
-      const updateTimer = () => {
-        const now = Date.now();
-        const elapsed = (now - room.questionStartTime!) / 1000;
-        const remaining = Math.max(0, currentQ.timeLimitSeconds - elapsed);
-        
-        setTimeLeft(Math.ceil(remaining));
-
-        const basePoints = currentQ.basePoints || 1000;
-        
-        if (quiz.decreasePointsOverTime === false) {
-          setCurrentPotential(basePoints);
-        } else {
-          // Cálculo dinâmico da pontuação atual (Premia velocidade, mín 50% dos basePoints)
-          const ratio = remaining / currentQ.timeLimitSeconds;
-          const potential = Math.round(basePoints * (0.5 + 0.5 * ratio));
-          setCurrentPotential(potential);
-        }
-        
-        if (remaining <= 0 && !hasAnswered) {
-          handleAnswer(-1);
-        }
-      };
-
-      updateTimer();
-      interval = setInterval(updateTimer, 100);
-    }
-    return () => clearInterval(interval);
-  }, [room?.status, room?.questionStartTime, room?.currentQuestionIndex, quiz, hasAnswered]);
-
-  const handleJoin = () => {
-    if (!roomRef || !safeNickname) return;
-    const playerKey = `players.${safeNickname}`;
-    const payload = {
-      [playerKey]: {
-        nickname: nickname,
-        score: 0,
-        joinedAt: Date.now()
-      }
-    };
-    updateDoc(roomRef, payload).catch(async () => {
-      errorEmitter.emit('permission-error', new FirestorePermissionError({
-        path: roomRef.path,
-        operation: 'update',
-        requestResourceData: payload
-      }));
-    });
-  };
-
-  useEffect(() => {
-    if (room && safeNickname && !room.players?.[safeNickname]) {
-      handleJoin();
-    }
-  }, [room?.id, safeNickname]);
-
-  const handleAnswer = (index: number) => {
-    if (hasAnswered || !room || !quiz || !safeNickname) return;
+  const handleAnswer = async (index: number) => {
+    if (hasAnswered || !session || !currentQ || !nickname) return;
     setHasAnswered(true);
-
-    const currentQ = quiz.questions[room.currentQuestionIndex];
-    const isCorrect = Number(index) === Number(currentQ.correctAnswerIndex);
-    
-    let points = 0;
-    if (isCorrect) {
-      points = Math.round(currentPotential);
-      const scoreKey = `players.${safeNickname}.score`;
-      // increment() é atômico no servidor: evita perda de pontos sob concorrência
-      // (vários jogadores no mesmo documento) ou reenvio após reconexão.
-      const payload = { [scoreKey]: increment(points) };
-
-      updateDoc(roomRef!, payload).catch(async () => {
-        errorEmitter.emit('permission-error', new FirestorePermissionError({
-          path: roomRef!.path,
-          operation: 'update',
-          requestResourceData: payload
-        }));
-      });
+    const supabase = getSupabaseBrowserClient();
+    // Pontuação decidida no servidor (anti-cheat + idempotente)
+    const { data, error } = await supabase.rpc('submit_answer', {
+      p_pin: pin as string,
+      p_nickname: nickname,
+      p_question_index: session.current_question_index,
+      p_chosen_index: index,
+    });
+    const row = Array.isArray(data) ? data[0] : data;
+    if (!error && row) {
+      setAnswerFeedback({ correct: !!row.is_correct, points: row.points || 0 });
+    } else {
+      setAnswerFeedback({ correct: false, points: 0 });
     }
-
-    setAnswerFeedback({ correct: isCorrect, points });
   };
 
-  // Só mostramos "Arena Encerrada" quando o servidor confirma que a sala foi
-  // removida (isRoomMissing). Enquanto isso, se ainda não há dados, é carregamento
-  // ou reconexão — nunca chutamos o jogador para fora por um erro transitório.
-  if (isRoomMissing) {
+  // Cronômetro sincronizado; envia resposta vazia (-1) ao esgotar
+  useEffect(() => {
+    let interval: ReturnType<typeof setInterval> | undefined;
+    if (session?.status === 'question' && session.question_started_at && currentQ) {
+      const startedAt = new Date(session.question_started_at).getTime();
+      const update = () => {
+        const elapsed = (Date.now() - startedAt) / 1000;
+        const remaining = Math.max(0, currentQ.time_limit_seconds - elapsed);
+        setTimeLeft(Math.ceil(remaining));
+        const base = currentQ.base_points || 1000;
+        if (quizSettings.decreasePointsOverTime === false) {
+          setCurrentPotential(base);
+        } else {
+          const ratio = remaining / currentQ.time_limit_seconds;
+          setCurrentPotential(Math.round(base * (0.5 + 0.5 * ratio)));
+        }
+        if (remaining <= 0 && !hasAnswered) handleAnswer(-1);
+      };
+      update();
+      interval = setInterval(update, 100);
+    }
+    return () => { if (interval) clearInterval(interval); };
+  }, [session?.status, session?.question_started_at, session?.current_question_index, currentQ, quizSettings, hasAnswered]);
+
+  if (isMissing) {
     return (
       <div className="min-h-screen flex items-center justify-center p-6 text-center bg-slate-50">
         <Card className="p-8 max-w-md w-full shadow-2xl border-none rounded-[2rem]">
@@ -147,24 +113,22 @@ export default function PlayerLiveGame() {
     );
   }
 
-  if (!room) {
+  if (!session) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center gap-4 bg-primary text-white">
         <Loader2 className="animate-spin w-10 h-10" />
-        <p className="font-bold opacity-80">
-          {isRoomStale ? 'Reconectando à arena...' : 'Entrando na arena...'}
-        </p>
+        <p className="font-bold opacity-80">{isReconnecting ? 'Reconectando à arena...' : 'Entrando na arena...'}</p>
       </div>
     );
   }
 
-  const currentQ = quiz?.questions[room.currentQuestionIndex];
-  const timeProgress = currentQ ? (timeLeft / currentQ.timeLimitSeconds) * 100 : 0;
-  const isFeedbackHidden = quiz?.showImmediateFeedback === false;
+  const timeProgress = currentQ ? (timeLeft / currentQ.time_limit_seconds) * 100 : 0;
+  const isFeedbackHidden = quizSettings.showImmediateFeedback === false;
+  const decrease = quizSettings.decreasePointsOverTime !== false;
 
   return (
     <div className="min-h-screen bg-primary flex flex-col p-6 text-white overflow-hidden">
-      {isRoomStale && (
+      {isReconnecting && (
         <div className="fixed top-0 inset-x-0 z-50 bg-yellow-500 text-primary text-center py-1.5 text-xs font-black uppercase tracking-wide flex items-center justify-center gap-2 animate-in slide-in-from-top">
           <WifiOff className="w-3.5 h-3.5" /> Reconectando... suas respostas estão salvas
         </div>
@@ -175,24 +139,24 @@ export default function PlayerLiveGame() {
           <span className="font-black text-xl truncate max-w-[120px]">{nickname}</span>
         </div>
 
-        {room.status === 'question' && (
-          <div className={`flex flex-col items-center px-6 py-2 rounded-2xl shadow-2xl border-b-4 transition-all ${quiz.decreasePointsOverTime !== false ? 'bg-yellow-500 border-yellow-700 text-primary' : 'bg-white border-slate-200 text-primary'}`}>
-            <span className="text-[10px] uppercase font-black opacity-80">{quiz.decreasePointsOverTime !== false ? 'Vale agora' : 'Valor Questão'}</span>
+        {session.status === 'question' && (
+          <div className={`flex flex-col items-center px-6 py-2 rounded-2xl shadow-2xl border-b-4 transition-all ${decrease ? 'bg-yellow-500 border-yellow-700 text-primary' : 'bg-white border-slate-200 text-primary'}`}>
+            <span className="text-[10px] uppercase font-black opacity-80">{decrease ? 'Vale agora' : 'Valor Questão'}</span>
             <div className="flex items-center gap-1">
-              <Coins className={`w-5 h-5 ${quiz.decreasePointsOverTime !== false ? 'text-primary' : 'text-yellow-500'}`} />
+              <Coins className={`w-5 h-5 ${decrease ? 'text-primary' : 'text-yellow-500'}`} />
               <span className="text-2xl font-black">{currentPotential}</span>
             </div>
           </div>
         )}
-        
+
         <div className="bg-white/10 backdrop-blur-md px-6 py-2 rounded-2xl flex flex-col items-center border border-white/20">
           <span className="text-[10px] uppercase font-black opacity-60">Total</span>
-          <span className="text-2xl font-black">{Math.round(room.players?.[safeNickname]?.score || 0)}</span>
+          <span className="text-2xl font-black">{myScore}</span>
         </div>
       </header>
 
       <main className="flex-1 flex flex-col items-center justify-center max-w-2xl mx-auto w-full">
-        {room.status === 'waiting' && (
+        {session.status === 'waiting' && (
           <div className="text-center space-y-10 animate-in fade-in zoom-in duration-500">
             <div className="relative">
               <div className="absolute inset-0 bg-white/20 blur-[100px] rounded-full"></div>
@@ -207,7 +171,7 @@ export default function PlayerLiveGame() {
           </div>
         )}
 
-        {room.status === 'question' && (
+        {session.status === 'question' && (
           <div className="w-full space-y-8 animate-in slide-in-from-bottom-10 duration-500">
             <div className="flex flex-col items-center gap-4 mb-4">
                 <div className="bg-black/20 px-8 py-3 rounded-full border border-white/10 flex items-center gap-4">
@@ -249,11 +213,11 @@ export default function PlayerLiveGame() {
               </div>
             ) : (
               <>
-                <h2 className="text-4xl font-black text-center mb-10 leading-tight drop-shadow-lg">{currentQ?.question}</h2>
+                <h2 className="text-4xl font-black text-center mb-10 leading-tight drop-shadow-lg">{currentQ?.prompt}</h2>
                 <div className="grid grid-cols-1 gap-4">
                   {currentQ?.alternatives.map((alt, idx) => (
-                    <Button 
-                      key={idx} 
+                    <Button
+                      key={idx}
                       className="h-24 text-2xl font-black bg-white text-primary hover:bg-white/90 shadow-[0_10px_0_0_rgba(255,255,255,0.2)] rounded-[2rem] transition-transform active:scale-95 whitespace-normal p-4"
                       onClick={() => handleAnswer(idx)}
                     >
@@ -266,7 +230,7 @@ export default function PlayerLiveGame() {
           </div>
         )}
 
-        {room.status === 'results' && (
+        {session.status === 'results' && (
           <div className="text-center space-y-10 animate-in fade-in duration-500">
              {isFeedbackHidden && answerFeedback ? (
                <div className="space-y-6 animate-in zoom-in-95 duration-500">
@@ -294,21 +258,21 @@ export default function PlayerLiveGame() {
                  <p className="text-2xl font-bold opacity-80">Olhe para o Host para ver o ranking!</p>
                </>
              )}
-             
+
              <div className="bg-white/10 backdrop-blur-xl p-12 rounded-[4rem] border border-white/20 shadow-2xl mt-8">
                 <p className="text-xs uppercase font-black mb-4 opacity-60 tracking-widest">Sua Pontuação Total</p>
-                <p className="text-8xl font-black">{Math.round(room.players?.[safeNickname]?.score || 0)}</p>
+                <p className="text-8xl font-black">{myScore}</p>
              </div>
           </div>
         )}
 
-        {room.status === 'podium' && (
+        {session.status === 'podium' && (
           <div className="text-center space-y-8 animate-in zoom-in duration-700">
              <Trophy className="w-32 h-32 mx-auto text-yellow-400 animate-bounce-slow" />
              <h2 className="text-6xl font-black tracking-tighter uppercase">ARENA FINALIZADA!</h2>
              <div className="bg-white text-primary p-12 rounded-[4rem] shadow-2xl transform hover:scale-105 transition-transform">
                 <p className="text-sm font-black mb-2 uppercase opacity-40">Sua Conquista</p>
-                <p className="text-8xl font-black">{Math.round(room.players?.[safeNickname]?.score || 0)} pts</p>
+                <p className="text-8xl font-black">{myScore} pts</p>
              </div>
              <Button variant="outline" className="text-white border-white/40 hover:bg-white/20 mt-10 rounded-2xl h-14 px-10 font-black" onClick={() => router.push('/')}>
                VOLTAR À BASE

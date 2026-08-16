@@ -8,11 +8,11 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Plus, Sparkles, Trash2, ArrowLeft, Save, Loader2, Clock, Info, Coins, Zap } from "lucide-react";
-import { doc, getDoc, updateDoc } from "firebase/firestore";
 import { Question } from "@/lib/models";
 import { useToast } from "@/hooks/use-toast";
 import { generateQuizQuestionsFromTopic } from "@/ai/flows/generate-quiz-questions-from-topic";
-import { useUser, useFirestore } from "@/firebase";
+import { getSupabaseBrowserClient } from "@/lib/supabase/client";
+import { useSupabaseAuth } from "@/lib/supabase/auth-context";
 import Link from "next/link";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
@@ -20,8 +20,7 @@ import { Label } from "@/components/ui/label";
 export default function EditQuiz() {
   const router = useRouter();
   const { id } = useParams();
-  const { user, isUserLoading } = useUser();
-  const db = useFirestore();
+  const { user, isLoading: isUserLoading } = useSupabaseAuth();
   const { toast } = useToast();
   
   const [isInitialLoading, setIsInitialLoading] = useState(true);
@@ -44,26 +43,42 @@ export default function EditQuiz() {
 
   useEffect(() => {
     async function fetchQuiz() {
-      if (!db || !id || !user) return;
+      if (!id || !user) return;
       try {
-        const docRef = doc(db, "quizzes", id as string);
-        const snap = await getDoc(docRef);
-        if (snap.exists()) {
-          const data = snap.data();
-          if (data.createdByUserId !== user.uid) {
-            toast({ title: "Acesso negado", description: "Você não tem permissão para editar este quiz.", variant: "destructive" });
-            router.push("/host");
-            return;
-          }
-          setTitle(data.title || "");
-          setDescription(data.description || "");
-          setShowImmediateFeedback(data.showImmediateFeedback ?? true);
-          setDecreasePointsOverTime(data.decreasePointsOverTime ?? true);
-          setQuestions(data.questions || []);
-        } else {
+        const supabase = getSupabaseBrowserClient();
+        // RLS já garante que só membros da org leem o quiz (ou se for público)
+        const { data: quiz, error } = await supabase
+          .from("quizzes")
+          .select("*")
+          .eq("id", id as string)
+          .maybeSingle();
+        if (error) throw error;
+        if (!quiz) {
           toast({ title: "Erro", description: "Quiz não encontrado.", variant: "destructive" });
           router.push("/host");
+          return;
         }
+
+        const { data: qs } = await supabase
+          .from("questions")
+          .select("*")
+          .eq("quiz_id", id as string)
+          .order("position", { ascending: true });
+
+        setTitle(quiz.title || "");
+        setDescription(quiz.description || "");
+        setShowImmediateFeedback(quiz.settings?.showImmediateFeedback ?? true);
+        setDecreasePointsOverTime(quiz.settings?.decreasePointsOverTime ?? true);
+        setQuestions(
+          (qs || []).map((q: any) => ({
+            id: q.id,
+            question: q.prompt,
+            alternatives: q.alternatives,
+            correctAnswerIndex: q.correct_index,
+            timeLimitSeconds: q.time_limit_seconds,
+            basePoints: q.base_points,
+          }))
+        );
       } catch (error) {
         toast({ title: "Erro ao carregar quiz", variant: "destructive" });
       } finally {
@@ -74,7 +89,7 @@ export default function EditQuiz() {
     if (user) {
       fetchQuiz();
     }
-  }, [db, id, user, router, toast]);
+  }, [id, user, router, toast]);
 
   if (isUserLoading || isInitialLoading || !user) {
     return (
@@ -133,15 +148,37 @@ export default function EditQuiz() {
 
     setIsSaving(true);
     try {
-      const docRef = doc(db, "quizzes", id as string);
-      await updateDoc(docRef, {
-        title,
-        description,
-        questions,
-        showImmediateFeedback,
-        decreasePointsOverTime,
-        updatedAt: new Date().toISOString()
-      });
+      const supabase = getSupabaseBrowserClient();
+      const { error: upErr } = await supabase
+        .from("quizzes")
+        .update({
+          title,
+          description,
+          settings: { showImmediateFeedback, decreasePointsOverTime },
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", id as string);
+      if (upErr) throw upErr;
+
+      // Substitui as questões (apaga e reinsere com a nova ordem)
+      const { error: delErr } = await supabase
+        .from("questions")
+        .delete()
+        .eq("quiz_id", id as string);
+      if (delErr) throw delErr;
+
+      const rows = questions.map((q, i) => ({
+        quiz_id: id as string,
+        position: i,
+        prompt: q.question,
+        alternatives: q.alternatives,
+        correct_index: q.correctAnswerIndex,
+        time_limit_seconds: q.timeLimitSeconds,
+        base_points: q.basePoints,
+      }));
+      const { error: insErr } = await supabase.from("questions").insert(rows);
+      if (insErr) throw insErr;
+
       toast({ title: "Quiz atualizado com sucesso!" });
       router.push("/host");
     } catch (error) {

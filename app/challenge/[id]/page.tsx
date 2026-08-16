@@ -3,7 +3,6 @@
 
 import React, { useState, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { doc, getDoc, collection, addDoc } from "firebase/firestore";
 import { Quiz, Question } from "@/lib/models";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,11 +10,10 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Trophy, Clock, CheckCircle, XCircle, Loader2, Timer, Coins } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
 import Link from "next/link";
-import { useFirestore, errorEmitter, FirestorePermissionError } from "@/firebase";
+import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 
 export default function ChallengePlay() {
   const { id } = useParams();
-  const db = useFirestore();
   const router = useRouter();
   const [quiz, setQuiz] = useState<Quiz | null>(null);
   const [gameState, setGameState] = useState<'intro' | 'playing' | 'results'>('intro');
@@ -31,15 +29,39 @@ export default function ChallengePlay() {
 
   useEffect(() => {
     async function fetchQuiz() {
-      if (!db || !id) return;
-      const docRef = doc(db, "quizzes", id as string);
-      const snap = await getDoc(docRef);
-      if (snap.exists()) {
-        setQuiz({ id: snap.id, ...snap.data() } as any);
-      }
+      if (!id) return;
+      const supabase = getSupabaseBrowserClient();
+      // RLS permite ler quiz publicado como desafio
+      const { data: q } = await supabase
+        .from("quizzes")
+        .select("*")
+        .eq("id", id as string)
+        .maybeSingle();
+      if (!q) return;
+      const { data: qs } = await supabase
+        .from("questions")
+        .select("*")
+        .eq("quiz_id", id as string)
+        .order("position", { ascending: true });
+      // Reconstrói o formato usado pela tela (compatível com o modelo antigo)
+      setQuiz({
+        id: q.id,
+        title: q.title,
+        description: q.description || "",
+        decreasePointsOverTime: q.settings?.decreasePointsOverTime,
+        showImmediateFeedback: q.settings?.showImmediateFeedback,
+        questions: (qs || []).map((r: any) => ({
+          id: r.id,
+          question: r.prompt,
+          alternatives: r.alternatives,
+          correctAnswerIndex: r.correct_index,
+          timeLimitSeconds: r.time_limit_seconds,
+          basePoints: r.base_points,
+        })),
+      } as any);
     }
     fetchQuiz();
-  }, [id, db]);
+  }, [id]);
 
   // Cronômetro e cálculo de pontos em tempo real
   useEffect(() => {
@@ -114,20 +136,13 @@ export default function ChallengePlay() {
 
   const finishGame = () => {
     setGameState('results');
-    const payload = {
-      challengeId: id,
+    const supabase = getSupabaseBrowserClient();
+    supabase.from("challenge_results").insert({
+      quiz_id: id as string,
       nickname,
       score: Math.round(score),
-      correctAnswers: correctCount,
-      totalTime: Math.round(totalTimeTaken),
-      timestamp: Date.now()
-    };
-    addDoc(collection(db, "challengeResults"), payload).catch(async () => {
-      errorEmitter.emit('permission-error', new FirestorePermissionError({
-        path: 'challengeResults',
-        operation: 'create',
-        requestResourceData: payload
-      }));
+      correct_answers: correctCount,
+      total_time_ms: Math.round(totalTimeTaken * 1000),
     });
   };
 

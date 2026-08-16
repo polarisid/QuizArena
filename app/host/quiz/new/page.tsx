@@ -8,19 +8,18 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Plus, Sparkles, Trash2, ArrowLeft, Save, Loader2, Clock, Info, Coins, Zap } from "lucide-react";
-import { collection, addDoc } from "firebase/firestore";
 import { Question } from "@/lib/models";
 import { useToast } from "@/hooks/use-toast";
 import { generateQuizQuestionsFromTopic } from "@/ai/flows/generate-quiz-questions-from-topic";
-import { useUser, useFirestore } from "@/firebase";
+import { getSupabaseBrowserClient } from "@/lib/supabase/client";
+import { useSupabaseAuth } from "@/lib/supabase/auth-context";
 import Link from "next/link";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 
 export default function NewQuiz() {
   const router = useRouter();
-  const { user, isUserLoading } = useUser();
-  const db = useFirestore();
+  const { user, membership, isLoading: isUserLoading } = useSupabaseAuth();
   const { toast } = useToast();
   
   const [isSaving, setIsSaving] = useState(false);
@@ -95,18 +94,42 @@ export default function NewQuiz() {
       return;
     }
 
+    if (!membership?.orgId) {
+      toast({ title: "Workspace ainda carregando, tente novamente", variant: "destructive" });
+      return;
+    }
+
     setIsSaving(true);
     try {
-      await addDoc(collection(db, "quizzes"), {
-        title,
-        description,
-        questions,
-        showImmediateFeedback,
-        decreasePointsOverTime,
-        createdAt: new Date().toISOString(),
-        createdByUserId: user.uid,
-        isPublishedAsChallenge: false
-      });
+      const supabase = getSupabaseBrowserClient();
+      // 1) cria o quiz na org do host
+      const { data: created, error: quizErr } = await supabase
+        .from("quizzes")
+        .insert({
+          org_id: membership.orgId,
+          created_by: user.id,
+          title,
+          description,
+          settings: { showImmediateFeedback, decreasePointsOverTime },
+          is_published_as_challenge: false,
+        })
+        .select("id")
+        .single();
+      if (quizErr || !created) throw quizErr ?? new Error("falha ao criar quiz");
+
+      // 2) grava as questões normalizadas (uma linha cada, position 0-based)
+      const rows = questions.map((q, i) => ({
+        quiz_id: created.id,
+        position: i,
+        prompt: q.question,
+        alternatives: q.alternatives,
+        correct_index: q.correctAnswerIndex,
+        time_limit_seconds: q.timeLimitSeconds,
+        base_points: q.basePoints,
+      }));
+      const { error: qErr } = await supabase.from("questions").insert(rows);
+      if (qErr) throw qErr;
+
       toast({ title: "Quiz salvo com sucesso!" });
       router.push("/host");
     } catch (error) {

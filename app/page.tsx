@@ -7,13 +7,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { Trophy, Play, FileText, Loader2 } from "lucide-react";
-import { useUser } from "@/firebase";
+import { useSupabaseAuth } from "@/lib/supabase/auth-context";
 import Link from "next/link";
 
 function HomeContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { user, isUserLoading } = useUser();
+  const { user, isLoading: isUserLoading } = useSupabaseAuth();
   const [livePin, setLivePin] = useState("");
   const [liveNickname, setLiveNickname] = useState("");
   const [challengeId, setChallengeId] = useState("");
