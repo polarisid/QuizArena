@@ -27,12 +27,19 @@ export default function PlayerLiveGame() {
 
   const myScore = Math.round(players.find((p) => p.nickname === nickname)?.score || 0);
 
-  // Entra na sala assim que a sessão existe
+  // Entra na sala — e RE-TENTA enquanto não aparecer na lista de jogadores
+  // (auto-recuperação: cobre join que falhou ou evento de realtime perdido).
   useEffect(() => {
     if (!session || !nickname) return;
+    const amIn = players.some((p) => p.nickname === nickname);
+    if (amIn) return;
     const supabase = getSupabaseBrowserClient();
-    supabase.rpc('join_game', { p_pin: pin as string, p_nickname: nickname });
-  }, [session?.id, nickname, pin]);
+    supabase
+      .rpc('join_game', { p_pin: pin as string, p_nickname: nickname })
+      .then(({ error }) => {
+        if (error) console.error('join_game falhou:', error.message);
+      });
+  }, [session?.id, nickname, pin, players]);
 
   // Carrega questões + settings do quiz
   useEffect(() => {

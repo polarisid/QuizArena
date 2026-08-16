@@ -77,20 +77,6 @@ export function useLiveSession(pin: string | null | undefined): LiveSessionState
     setIsLoading(false);
   }, [pin, supabase]);
 
-  const startPolling = useCallback(() => {
-    if (pollTimer.current) return;
-    setIsRealtime(false);
-    fetchState();
-    pollTimer.current = setInterval(fetchState, POLL_INTERVAL_MS);
-  }, [fetchState]);
-
-  const stopPolling = useCallback(() => {
-    if (pollTimer.current) {
-      clearInterval(pollTimer.current);
-      pollTimer.current = null;
-    }
-  }, []);
-
   useEffect(() => {
     if (!pin) {
       setIsLoading(false);
@@ -101,6 +87,11 @@ export function useLiveSession(pin: string | null | undefined): LiveSessionState
 
     // Carga inicial imediata (não espera o WebSocket)
     fetchState();
+
+    // BACKSTOP: polling SEMPRE ativo. O Realtime abaixo só acelera as atualizações;
+    // se ele não estiver entregando eventos (projeto novo, proxy, RLS), o polling
+    // garante que jogadores e mudanças de estado apareçam de qualquer forma.
+    pollTimer.current = setInterval(fetchState, POLL_INTERVAL_MS);
 
     const channel = supabase
       .channel(`session:${pin}`)
@@ -136,24 +127,14 @@ export function useLiveSession(pin: string | null | undefined): LiveSessionState
         if (status === 'SUBSCRIBED') {
           setIsRealtime(true);
           setIsReconnecting(false);
-          stopPolling(); // Realtime ok → dispensa o polling
-          fetchState();  // ressincroniza o que possa ter mudado durante a conexão
+          fetchState(); // ressincroniza o que mudou durante a conexão
         } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+          setIsRealtime(false);
           setIsReconnecting(true);
-          startPolling(); // WebSocket falhou/bloqueado → garante updates por HTTP
         }
       });
 
     channelRef.current = channel;
-
-    // Se em 4s o Realtime não subiu (proxy bloqueando), já liga o polling
-    const guard = setTimeout(() => {
-      if (!cancelled && !channelRef.current) return;
-      setIsRealtime((rt) => {
-        if (!rt) startPolling();
-        return rt;
-      });
-    }, 4000);
 
     // Ressincroniza ao voltar o foco / reconectar a rede
     const onVisible = () => {
@@ -165,14 +146,16 @@ export function useLiveSession(pin: string | null | undefined): LiveSessionState
 
     return () => {
       cancelled = true;
-      clearTimeout(guard);
-      stopPolling();
+      if (pollTimer.current) {
+        clearInterval(pollTimer.current);
+        pollTimer.current = null;
+      }
       document.removeEventListener('visibilitychange', onVisible);
       window.removeEventListener('online', onOnline);
       supabase.removeChannel(channel);
       channelRef.current = null;
     };
-  }, [pin, supabase, fetchState, startPolling, stopPolling]);
+  }, [pin, supabase, fetchState]);
 
   return { session, players, isLoading, isMissing, isRealtime, isReconnecting };
 }
