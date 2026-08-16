@@ -2,8 +2,38 @@
 
 import { firebaseConfig } from '@/firebase/config';
 import { initializeApp, getApps, getApp, FirebaseApp } from 'firebase/app';
-import { getAuth } from 'firebase/auth';
-import { getFirestore } from 'firebase/firestore'
+import { getAuth, setPersistence, browserLocalPersistence } from 'firebase/auth';
+import {
+  getFirestore,
+  initializeFirestore,
+  persistentLocalCache,
+  persistentMultipleTabManager,
+  type Firestore,
+} from 'firebase/firestore';
+
+/**
+ * Cria a instância do Firestore de forma resiliente para jogos ao vivo:
+ * - `experimentalAutoDetectLongPolling`: detecta quando o streaming (WebChannel)
+ *   é bloqueado por proxies/operadoras/redes corporativas e cai para long-polling,
+ *   evitando que o jogador "congele" numa questão sem receber os updates do host.
+ * - `persistentLocalCache`: mantém o último estado conhecido em cache (IndexedDB),
+ *   dando resiliência offline e reconexão suave entre múltiplas abas.
+ *
+ * `initializeFirestore` só pode ser chamado uma vez por app; em recarregamentos
+ * (HMR) ou segunda chamada, caímos para `getFirestore` já existente.
+ */
+function createResilientFirestore(app: FirebaseApp): Firestore {
+  try {
+    return initializeFirestore(app, {
+      experimentalAutoDetectLongPolling: true,
+      localCache: persistentLocalCache({
+        tabManager: persistentMultipleTabManager(),
+      }),
+    });
+  } catch {
+    return getFirestore(app);
+  }
+}
 
 // IMPORTANT: DO NOT MODIFY THIS FUNCTION
 export function initializeFirebase() {
@@ -33,10 +63,20 @@ export function initializeFirebase() {
 }
 
 export function getSdks(firebaseApp: FirebaseApp) {
+  const auth = getAuth(firebaseApp);
+
+  // Garante que a sessão do host sobreviva a recarregamentos e trocas de aba,
+  // evitando "deslogamentos" no meio do jogo por perda de sessão.
+  if (typeof window !== 'undefined') {
+    setPersistence(auth, browserLocalPersistence).catch(() => {
+      /* ambientes sem storage (modo privado) — mantém persistência em memória */
+    });
+  }
+
   return {
     firebaseApp,
-    auth: getAuth(firebaseApp),
-    firestore: getFirestore(firebaseApp)
+    auth,
+    firestore: createResilientFirestore(firebaseApp),
   };
 }
 

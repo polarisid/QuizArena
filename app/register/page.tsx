@@ -1,16 +1,14 @@
-
 'use client';
 
 import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { useAuth, useFirestore } from '@/firebase';
-import { createUserWithEmailAndPassword, updateProfile } from 'firebase/auth';
-import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { getSupabaseBrowserClient, isSupabaseConfigured } from '@/lib/supabase/client';
+import { useSupabaseAuth } from '@/lib/supabase/auth-context';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
-import { Trophy, Loader2, CheckCircle2 } from 'lucide-react';
+import { Trophy, Loader2, MailCheck } from 'lucide-react';
 import Link from 'next/link';
 import { useToast } from '@/hooks/use-toast';
 
@@ -19,35 +17,40 @@ export default function RegisterPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [isSuccess, setIsSuccess] = useState(false);
-  
-  const auth = useAuth();
-  const db = useFirestore();
+  const [needsConfirm, setNeedsConfirm] = useState(false);
+
+  const router = useRouter();
   const { toast } = useToast();
+  const { ensureOrganization } = useSupabaseAuth();
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!isSupabaseConfigured()) {
+      toast({
+        variant: 'destructive',
+        title: 'Supabase não configurado',
+        description: 'Defina as variáveis NEXT_PUBLIC_SUPABASE_* em .env.local.',
+      });
+      return;
+    }
     setIsLoading(true);
     try {
-      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-      const user = userCredential.user;
-
-      await updateProfile(user, { displayName: name });
-
-      // Create host profile with pending status
-      await setDoc(doc(db, 'hosts', user.uid), {
-        uid: user.uid,
-        email: email,
-        displayName: name,
-        status: 'pending',
-        createdAt: new Date().toISOString()
+      const supabase = getSupabaseBrowserClient();
+      const { data, error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: { data: { full_name: name } },
       });
+      if (error) throw error;
 
-      setIsSuccess(true);
-      toast({
-        title: 'Solicitação enviada!',
-        description: 'Seu cadastro está pendente de aprovação pelo admin.',
-      });
+      if (data.session) {
+        // Confirmação de e-mail desligada: já entra e ganha o workspace
+        await ensureOrganization(name);
+        router.push('/host');
+      } else {
+        // Confirmação de e-mail ligada: pede verificação
+        setNeedsConfirm(true);
+      }
     } catch (error: any) {
       toast({
         variant: 'destructive',
@@ -59,15 +62,15 @@ export default function RegisterPage() {
     }
   };
 
-  if (isSuccess) {
+  if (needsConfirm) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-muted/30 p-6">
         <Card className="w-full max-w-md text-center p-8 space-y-6 shadow-2xl">
-          <CheckCircle2 className="w-20 h-20 text-green-500 mx-auto animate-bounce-slow" />
+          <MailCheck className="w-20 h-20 text-primary mx-auto animate-bounce-slow" />
           <div className="space-y-2">
-            <CardTitle className="text-3xl font-headline">Solicitação Recebida!</CardTitle>
+            <CardTitle className="text-3xl font-headline">Confirme seu e-mail</CardTitle>
             <CardDescription className="text-lg">
-              Agora um Superadmin precisa ativar seu acesso. Você receberá um aviso assim que puder logar.
+              Enviamos um link de confirmação para <strong>{email}</strong>. Depois de confirmar, faça login para acessar seu painel.
             </CardDescription>
           </div>
           <Button asChild className="w-full h-12">
@@ -87,7 +90,7 @@ export default function RegisterPage() {
           </div>
           <div className="space-y-1">
             <CardTitle className="text-3xl font-headline">Torne-se um Host</CardTitle>
-            <CardDescription>Crie sua conta para começar a criar quizzes</CardDescription>
+            <CardDescription>Crie sua conta e seu workspace em segundos</CardDescription>
           </div>
         </CardHeader>
         <CardContent>
@@ -103,7 +106,7 @@ export default function RegisterPage() {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="email">Email Corporativo</Label>
+              <Label htmlFor="email">Email</Label>
               <Input
                 id="email"
                 type="email"
@@ -125,7 +128,7 @@ export default function RegisterPage() {
               />
             </div>
             <Button type="submit" className="w-full font-bold h-12" disabled={isLoading}>
-              {isLoading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : 'Solicitar Ativação'}
+              {isLoading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : 'Criar conta'}
             </Button>
           </form>
           <div className="mt-6 text-center text-sm">

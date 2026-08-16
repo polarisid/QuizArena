@@ -1,10 +1,9 @@
-
 'use client';
 
 import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { useAuth } from '@/firebase';
-import { signInWithEmailAndPassword } from 'firebase/auth';
+import { getSupabaseBrowserClient, isSupabaseConfigured } from '@/lib/supabase/client';
+import { useSupabaseAuth } from '@/lib/supabase/auth-context';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -17,21 +16,33 @@ export default function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const auth = useAuth();
   const router = useRouter();
   const { toast } = useToast();
+  const { ensureOrganization } = useSupabaseAuth();
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!isSupabaseConfigured()) {
+      toast({
+        variant: 'destructive',
+        title: 'Supabase não configurado',
+        description: 'Defina as variáveis NEXT_PUBLIC_SUPABASE_* em .env.local.',
+      });
+      return;
+    }
     setIsLoading(true);
     try {
-      await signInWithEmailAndPassword(auth, email, password);
+      const supabase = getSupabaseBrowserClient();
+      const { error } = await supabase.auth.signInWithPassword({ email, password });
+      if (error) throw error;
+      // Garante que o host tenha um workspace antes de entrar no painel
+      await ensureOrganization();
       router.push('/host');
     } catch (error: any) {
       toast({
         variant: 'destructive',
         title: 'Erro no Login',
-        description: 'Credenciais inválidas ou conta não aprovada.',
+        description: 'E-mail ou senha inválidos.',
       });
     } finally {
       setIsLoading(false);
@@ -81,7 +92,7 @@ export default function LoginPage() {
             <p className="text-muted-foreground">
               Não tem uma conta?{' '}
               <Link href="/register" className="text-primary font-bold hover:underline">
-                Solicite acesso agora
+                Crie agora
               </Link>
             </p>
             <Link href="/" className="flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors">

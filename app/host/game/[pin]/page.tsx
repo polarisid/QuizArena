@@ -45,7 +45,7 @@ export default function HostGameControl() {
     return doc(db, 'gameRooms', pin as string);
   }, [db, pin]);
 
-  const { data: room, isLoading: isRoomLoading } = useDoc(roomRef);
+  const { data: room, isLoading: isRoomLoading, isMissing: isRoomMissing } = useDoc(roomRef);
 
   const quizRef = useMemoFirebase(() => {
     if (!db || !room?.quizId) return null;
@@ -56,12 +56,13 @@ export default function HostGameControl() {
 
   const players = room?.players ? Object.values(room.players) : [];
 
-  // Redirecionamento REATIVO: Se a sala for deletada, sai da página imediatamente
+  // Redirecionamento REATIVO: só sai da página quando o servidor confirma que a
+  // sala foi removida (isRoomMissing), nunca por um erro transitório de conexão.
   useEffect(() => {
-    if (pin && !isRoomLoading && room === null) {
+    if (pin && isRoomMissing) {
       router.push('/host');
     }
-  }, [room, isRoomLoading, router, pin]);
+  }, [isRoomMissing, router, pin]);
 
   // Cronômetro do Host e Cálculo de Pontuação Dinâmica
   useEffect(() => {

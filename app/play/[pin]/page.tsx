@@ -4,10 +4,10 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useSearchParams, useRouter } from 'next/navigation';
 import { useFirestore, useDoc, errorEmitter, FirestorePermissionError } from '@/firebase';
-import { doc, updateDoc } from 'firebase/firestore';
+import { doc, updateDoc, increment } from 'firebase/firestore';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { Trophy, Clock, Loader2, CheckCircle, XCircle, Timer, Send, Coins } from 'lucide-react';
+import { Trophy, Clock, Loader2, CheckCircle, XCircle, Timer, Send, Coins, WifiOff } from 'lucide-react';
 import { Progress } from '@/components/ui/progress';
 import { useMemoFirebase } from '@/firebase/provider';
 
@@ -30,7 +30,7 @@ export default function PlayerLiveGame() {
     return doc(db, 'gameRooms', pin as string);
   }, [db, pin]);
 
-  const { data: room, isLoading: isRoomLoading } = useDoc(roomRef);
+  const { data: room, isLoading: isRoomLoading, isMissing: isRoomMissing, isStale: isRoomStale } = useDoc(roomRef);
 
   const quizRef = useMemoFirebase(() => {
     if (!db || !room?.quizId) return null;
@@ -113,11 +113,12 @@ export default function PlayerLiveGame() {
     
     let points = 0;
     if (isCorrect) {
-      points = currentPotential;
+      points = Math.round(currentPotential);
       const scoreKey = `players.${safeNickname}.score`;
-      const currentScore = room.players[safeNickname]?.score || 0;
-      const payload = { [scoreKey]: Math.round(currentScore + points) };
-      
+      // increment() é atômico no servidor: evita perda de pontos sob concorrência
+      // (vários jogadores no mesmo documento) ou reenvio após reconexão.
+      const payload = { [scoreKey]: increment(points) };
+
       updateDoc(roomRef!, payload).catch(async () => {
         errorEmitter.emit('permission-error', new FirestorePermissionError({
           path: roomRef!.path,
@@ -130,21 +131,29 @@ export default function PlayerLiveGame() {
     setAnswerFeedback({ correct: isCorrect, points });
   };
 
-  if (isRoomLoading || isQuizLoading) {
+  // Só mostramos "Arena Encerrada" quando o servidor confirma que a sala foi
+  // removida (isRoomMissing). Enquanto isso, se ainda não há dados, é carregamento
+  // ou reconexão — nunca chutamos o jogador para fora por um erro transitório.
+  if (isRoomMissing) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-primary">
-        <Loader2 className="animate-spin text-white w-10 h-10" />
+      <div className="min-h-screen flex items-center justify-center p-6 text-center bg-slate-50">
+        <Card className="p-8 max-w-md w-full shadow-2xl border-none rounded-[2rem]">
+           <Trophy className="w-12 h-12 text-primary mx-auto mb-4" />
+           <CardTitle className="text-2xl mb-2">Arena Encerrada</CardTitle>
+           <CardDescription className="mb-6">O host finalizou esta partida.</CardDescription>
+           <Button onClick={() => router.push('/')} className="w-full">Voltar para Início</Button>
+        </Card>
       </div>
     );
   }
 
   if (!room) {
     return (
-      <div className="min-h-screen flex items-center justify-center p-6 text-center bg-slate-50">
-        <Card className="p-8 max-w-md w-full shadow-2xl border-none rounded-[2rem]">
-           <CardTitle className="text-2xl mb-4">Arena Encerrada</CardTitle>
-           <Button onClick={() => router.push('/')} className="w-full">Voltar para Início</Button>
-        </Card>
+      <div className="min-h-screen flex flex-col items-center justify-center gap-4 bg-primary text-white">
+        <Loader2 className="animate-spin w-10 h-10" />
+        <p className="font-bold opacity-80">
+          {isRoomStale ? 'Reconectando à arena...' : 'Entrando na arena...'}
+        </p>
       </div>
     );
   }
@@ -155,6 +164,11 @@ export default function PlayerLiveGame() {
 
   return (
     <div className="min-h-screen bg-primary flex flex-col p-6 text-white overflow-hidden">
+      {isRoomStale && (
+        <div className="fixed top-0 inset-x-0 z-50 bg-yellow-500 text-primary text-center py-1.5 text-xs font-black uppercase tracking-wide flex items-center justify-center gap-2 animate-in slide-in-from-top">
+          <WifiOff className="w-3.5 h-3.5" /> Reconectando... suas respostas estão salvas
+        </div>
+      )}
       <header className="max-w-4xl mx-auto w-full flex items-center justify-between mb-8 gap-4">
         <div className="flex flex-col">
           <span className="text-[10px] uppercase font-black opacity-60">Combatente</span>

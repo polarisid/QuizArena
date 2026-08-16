@@ -1,6 +1,7 @@
 import type {Metadata} from 'next';
 import './globals.css';
 import { FirebaseClientProvider } from '@/firebase';
+import { SupabaseAuthProvider } from '@/lib/supabase/auth-context';
 import { Toaster } from '@/components/ui/toaster';
 
 export const metadata: Metadata = {
@@ -22,8 +23,10 @@ export default function RootLayout({
       </head>
       <body className="font-body antialiased bg-background text-foreground">
         <FirebaseClientProvider>
-          {children}
-          <Toaster />
+          <SupabaseAuthProvider>
+            {children}
+            <Toaster />
+          </SupabaseAuthProvider>
         </FirebaseClientProvider>
       </body>
     </html>
