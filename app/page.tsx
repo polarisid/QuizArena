@@ -6,7 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
-import { Trophy, Play, FileText, Loader2 } from "lucide-react";
+import { Trophy, Play, FileText, Loader2, Triangle, Diamond, Circle, Square, Coins, Timer } from "lucide-react";
 import { useSupabaseAuth } from "@/lib/supabase/auth-context";
 import Link from "next/link";
 
@@ -147,13 +147,44 @@ function HomeContent() {
           </div>
 
           <div className="relative hidden lg:block">
-             <div className="absolute -inset-10 bg-primary/10 blur-[100px] rounded-full"></div>
-             <img 
-               src="https://picsum.photos/seed/quiz-arena/1000/800" 
-               alt="Hero" 
-               className="relative rounded-[2rem] shadow-2xl border-8 border-white transform rotate-2 hover:rotate-0 transition-transform duration-500"
-               data-ai-hint="educational gaming"
-             />
+             <div className="absolute -inset-10 bg-primary/20 blur-[110px] rounded-full"></div>
+
+             {/* Mockup do jogo — mostra o produto e a linguagem de cor+forma das respostas */}
+             <div className="relative animate-float-slow">
+               <div className="bg-primary rounded-[2.25rem] p-7 shadow-2xl rotate-2 border-4 border-white/10">
+                 <div className="flex items-center justify-between mb-6 text-white">
+                   <span className="flex items-center gap-2 bg-black/20 px-4 py-1.5 rounded-full font-bold text-sm">
+                     <Timer className="w-4 h-4" /> 18s
+                   </span>
+                   <span className="flex items-center gap-1.5 bg-[hsl(var(--gold))] text-primary px-4 py-1.5 rounded-full font-black text-sm">
+                     <Coins className="w-4 h-4" /> 940
+                   </span>
+                 </div>
+                 <p className="text-white font-extrabold text-2xl leading-tight mb-6">Qual país sediou a primeira Copa do Mundo?</p>
+                 <div className="grid grid-cols-2 gap-3">
+                   {[
+                     { c: 'buzzer-1', S: Triangle, t: 'Brasil' },
+                     { c: 'buzzer-2', S: Diamond, t: 'Uruguai' },
+                     { c: 'buzzer-3', S: Circle, t: 'Itália' },
+                     { c: 'buzzer-4', S: Square, t: 'Argentina' },
+                   ].map(({ c, S, t }) => (
+                     <div key={t} className={`buzzer ${c} !p-4 !rounded-2xl text-base`}>
+                       <span className="buzzer-glyph !w-8 !h-8"><S className="fill-white w-4 h-4" /></span>
+                       <span className="flex-1">{t}</span>
+                     </div>
+                   ))}
+                 </div>
+               </div>
+
+               {/* Selo flutuante de ranking */}
+               <div className="absolute -bottom-6 -left-6 bg-white rounded-2xl shadow-xl px-5 py-3 flex items-center gap-3 -rotate-3 border border-slate-100">
+                 <Trophy className="w-8 h-8 text-[hsl(var(--gold))]" />
+                 <div className="leading-none">
+                   <p className="text-[10px] font-bold uppercase text-slate-400 tracking-wider">Ranking ao vivo</p>
+                   <p className="font-black text-slate-900 text-lg">1º · você</p>
+                 </div>
+               </div>
+             </div>
           </div>
         </div>
       </main>

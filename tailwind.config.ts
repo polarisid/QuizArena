@@ -3,6 +3,9 @@ import type {Config} from 'tailwindcss';
 export default {
   darkMode: ['class'],
   content: [
+    // Roteamento ativo fica na pasta raiz /app; componentes em /src
+    './app/**/*.{js,ts,jsx,tsx,mdx}',
+    './components/**/*.{js,ts,jsx,tsx,mdx}',
     './src/pages/**/*.{js,ts,jsx,tsx,mdx}',
     './src/components/**/*.{js,ts,jsx,tsx,mdx}',
     './src/app/**/*.{js,ts,jsx,tsx,mdx}',
@@ -10,9 +13,9 @@ export default {
   theme: {
     extend: {
       fontFamily: {
-        body: ['Inter', 'sans-serif'],
-        headline: ['Space Grotesk', 'sans-serif'],
-        code: ['monospace'],
+        body: ['Inter', 'system-ui', 'sans-serif'],
+        headline: ['Archivo', 'system-ui', 'sans-serif'],
+        code: ['ui-monospace', 'monospace'],
       },
       colors: {
         background: 'hsl(var(--background))',

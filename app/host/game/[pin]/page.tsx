@@ -8,7 +8,10 @@ import { useLiveSession } from '@/lib/supabase/use-live-session';
 import type { Question, QuizSettings } from '@/lib/supabase/types';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Trophy, Users, Play, SkipForward, Loader2, LogOut, Timer, Coins, ArrowLeft, WifiOff } from 'lucide-react';
+import { Trophy, Users, Play, SkipForward, Loader2, LogOut, Timer, Coins, ArrowLeft, WifiOff, Triangle, Diamond, Circle, Square } from 'lucide-react';
+
+const ANSWER_SHAPES = [Triangle, Diamond, Circle, Square];
+const ANSWER_BG = ['bg-[hsl(var(--ans-1))]', 'bg-[hsl(var(--ans-2))]', 'bg-[hsl(var(--ans-3))]', 'bg-[hsl(var(--ans-4))]'];
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
 import { Progress } from '@/components/ui/progress';
@@ -266,14 +269,17 @@ export default function HostGameControl() {
             </div>
 
             <div className="grid grid-cols-2 gap-6 max-w-4xl mx-auto">
-               {currentQ?.alternatives.map((alt, idx) => (
-                 <div key={idx} className="p-8 rounded-[2rem] border-4 border-slate-100 bg-white text-left font-bold text-2xl flex items-center shadow-sm">
-                   <span className="flex items-center justify-center w-12 h-12 rounded-2xl bg-slate-100 text-slate-500 mr-5 shrink-0">
-                     {String.fromCharCode(65 + idx)}
-                   </span>
-                   {alt}
-                 </div>
-               ))}
+               {currentQ?.alternatives.map((alt, idx) => {
+                 const Shape = ANSWER_SHAPES[idx % 4];
+                 return (
+                   <div key={idx} className="p-7 rounded-[1.75rem] bg-white text-left font-bold text-2xl flex items-center gap-5 shadow-[0_4px_0_0_rgba(0,0,0,0.06)] border border-slate-100">
+                     <span className={`flex items-center justify-center w-14 h-14 rounded-2xl text-white shrink-0 ${ANSWER_BG[idx % 4]}`}>
+                       <Shape className="w-6 h-6 fill-white" />
+                     </span>
+                     <span className="text-slate-800">{alt}</span>
+                   </div>
+                 );
+               })}
             </div>
 
             <Button onClick={handleShowResults} size="lg" className="h-16 px-12 text-xl font-black rounded-2xl shadow-xl">
@@ -286,8 +292,16 @@ export default function HostGameControl() {
           <div className="space-y-12">
             <div className="text-center space-y-6">
                <h2 className="text-2xl font-black text-slate-400 uppercase tracking-widest">Resposta Correta</h2>
-               <div className="max-w-2xl mx-auto p-10 rounded-[3rem] border-8 border-green-500 bg-green-50 font-black text-4xl shadow-2xl text-green-700">
-                 {currentQ?.alternatives[currentQ.correct_index]}
+               <div className="max-w-2xl mx-auto p-8 rounded-[2.5rem] bg-white border-4 border-[hsl(var(--ans-4))] font-black text-4xl shadow-2xl text-slate-800 flex items-center justify-center gap-5">
+                 {currentQ && (() => {
+                   const CorrectShape = ANSWER_SHAPES[currentQ.correct_index % 4];
+                   return (
+                     <span className={`flex items-center justify-center w-16 h-16 rounded-2xl text-white shrink-0 ${ANSWER_BG[currentQ.correct_index % 4]}`}>
+                       <CorrectShape className="w-7 h-7 fill-white" />
+                     </span>
+                   );
+                 })()}
+                 <span>{currentQ?.alternatives[currentQ.correct_index]}</span>
                </div>
             </div>
 

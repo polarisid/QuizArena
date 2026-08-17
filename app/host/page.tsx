@@ -130,8 +130,8 @@ export default function HostDashboard() {
   }
 
   return (
-    <div className="min-h-screen flex flex-col bg-slate-50">
-      <header className="px-6 py-4 flex items-center justify-between border-b bg-white/80 backdrop-blur-md sticky top-0 z-50">
+    <div className="min-h-screen flex flex-col bg-background">
+      <header className="px-6 py-4 flex items-center justify-between border-b bg-card/80 backdrop-blur-md sticky top-0 z-50">
         <Link href="/" className="flex items-center gap-2">
           <div className="bg-primary p-2 rounded-xl shadow-lg">
             <Trophy className="text-white w-5 h-5" />
@@ -163,8 +163,8 @@ export default function HostDashboard() {
             {quizzes.map((quiz) => (
               <Card key={quiz.id} className="overflow-hidden border-2 hover:border-primary/20 transition-all bg-white shadow-sm hover:shadow-md rounded-2xl">
                 <div className="flex flex-col md:flex-row p-8 gap-8 items-start">
-                  <div className="bg-slate-100 w-20 h-20 rounded-2xl flex items-center justify-center shrink-0">
-                     <BookOpen className="w-10 h-10 text-slate-400" />
+                  <div className="bg-primary/10 w-20 h-20 rounded-2xl flex items-center justify-center shrink-0">
+                     <BookOpen className="w-10 h-10 text-primary" />
                   </div>
                   <div className="flex-1 space-y-4 w-full">
                     <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">

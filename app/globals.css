@@ -4,26 +4,42 @@
 
 @layer base {
   :root {
-    --background: 270 20% 96%; /* #F4F0F7 */
-    --foreground: 260 20% 10%;
+    /* Neutros com viés violeta — nunca cinza puro */
+    --background: 265 45% 97%;
+    --foreground: 260 32% 12%;
     --card: 0 0% 100%;
-    --card-foreground: 260 20% 10%;
+    --card-foreground: 260 32% 12%;
     --popover: 0 0% 100%;
-    --popover-foreground: 260 20% 10%;
-    --primary: 260 60% 50%; /* #5A33CC - Adjusted to HSL */
+    --popover-foreground: 260 32% 12%;
+
+    /* Violeta elétrico — a marca */
+    --primary: 262 83% 58%;
     --primary-foreground: 0 0% 100%;
-    --secondary: 260 30% 90%;
-    --secondary-foreground: 260 60% 30%;
-    --muted: 260 10% 90%;
-    --muted-foreground: 260 10% 40%;
-    --accent: 215 89% 61%; /* #458EF2 */
+    --secondary: 262 44% 94%;
+    --secondary-foreground: 262 55% 34%;
+    --muted: 264 28% 92%;
+    --muted-foreground: 260 12% 46%;
+    --accent: 221 83% 57%;
     --accent-foreground: 0 0% 100%;
-    --destructive: 0 84% 60%;
-    --destructive-foreground: 0 0% 98%;
-    --border: 260 10% 85%;
-    --input: 260 10% 85%;
-    --ring: 260 60% 50%;
-    --radius: 1rem;
+    --destructive: 349 80% 55%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 262 26% 89%;
+    --input: 262 26% 89%;
+    --ring: 262 83% 58%;
+    --radius: 1.1rem;
+
+    /* Cores fixas das respostas (linguagem universal de quiz) */
+    --ans-1: 349 82% 56%;  /* rosa/vermelho */
+    --ans-2: 221 83% 56%;  /* azul */
+    --ans-3: 38 92% 50%;   /* âmbar */
+    --ans-4: 152 58% 42%;  /* verde */
+    --gold: 43 96% 52%;    /* pontos / vitória */
+
+    --chart-1: 262 83% 58%;
+    --chart-2: 221 83% 56%;
+    --chart-3: 38 92% 50%;
+    --chart-4: 152 58% 42%;
+    --chart-5: 349 82% 56%;
   }
 }
 
@@ -33,18 +49,81 @@
   }
   body {
     @apply bg-background text-foreground;
+    font-feature-settings: "cv02", "cv03", "cv04";
   }
   h1, h2, h3, h4, h5, h6 {
-    @apply font-headline font-bold;
+    @apply font-headline font-extrabold tracking-tight;
+    text-wrap: balance;
   }
 }
 
-/* Custom animations for gamification */
+@layer components {
+  /* ---- Botão-buzzer: cor + relevo tátil (assinatura do QuizArena) ---- */
+  .buzzer {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    width: 100%;
+    border: none;
+    border-radius: 1.4rem;
+    padding: 1.25rem 1.5rem;
+    color: #fff;
+    font-weight: 800;
+    text-align: left;
+    cursor: pointer;
+    box-shadow: 0 7px 0 0 rgba(0, 0, 0, 0.22), 0 14px 26px -10px rgba(0, 0, 0, 0.45);
+    transition: transform 0.09s ease, box-shadow 0.09s ease, filter 0.15s ease;
+  }
+  .buzzer:hover { filter: brightness(1.06); }
+  .buzzer:active {
+    transform: translateY(5px);
+    box-shadow: 0 2px 0 0 rgba(0, 0, 0, 0.22), 0 6px 14px -8px rgba(0, 0, 0, 0.45);
+  }
+  .buzzer:disabled { cursor: default; filter: grayscale(0.4) brightness(0.95); }
+  .buzzer:focus-visible { outline: 3px solid #fff; outline-offset: 3px; }
+
+  .buzzer-1 { background: linear-gradient(160deg, hsl(349 85% 60%), hsl(349 82% 50%)); }
+  .buzzer-2 { background: linear-gradient(160deg, hsl(221 85% 60%), hsl(221 83% 50%)); }
+  .buzzer-3 { background: linear-gradient(160deg, hsl(38 95% 55%), hsl(32 92% 48%)); }
+  .buzzer-4 { background: linear-gradient(160deg, hsl(152 60% 46%), hsl(152 60% 36%)); }
+
+  /* Marcador de forma dentro do buzzer (reforça a identidade sem depender de cor) */
+  .buzzer-glyph {
+    flex-shrink: 0;
+    width: 2.25rem;
+    height: 2.25rem;
+    display: grid;
+    place-items: center;
+    background: rgba(255, 255, 255, 0.22);
+    border-radius: 0.7rem;
+  }
+  .buzzer-glyph svg { width: 1.25rem; height: 1.25rem; }
+}
+
+/* ---- Animações de gamificação ---- */
 @keyframes bounce-slow {
   0%, 100% { transform: translateY(0); }
   50% { transform: translateY(-10px); }
 }
+.animate-bounce-slow { animation: bounce-slow 3s infinite ease-in-out; }
 
-.animate-bounce-slow {
-  animation: bounce-slow 3s infinite ease-in-out;
+@keyframes pop-in {
+  0% { transform: scale(0.8); opacity: 0; }
+  60% { transform: scale(1.04); }
+  100% { transform: scale(1); opacity: 1; }
+}
+.animate-pop-in { animation: pop-in 0.35s cubic-bezier(0.22, 1, 0.36, 1); }
+
+@keyframes float-slow {
+  0%, 100% { transform: translateY(0) rotate(0deg); }
+  50% { transform: translateY(-14px) rotate(1.5deg); }
+}
+.animate-float-slow { animation: float-slow 6s ease-in-out infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-bounce-slow,
+  .animate-pop-in,
+  .animate-float-slow { animation: none; }
+  .buzzer { transition: none; }
 }

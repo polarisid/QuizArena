@@ -7,7 +7,10 @@ import { useLiveSession } from '@/lib/supabase/use-live-session';
 import type { Question, QuizSettings } from '@/lib/supabase/types';
 import { Button } from '@/components/ui/button';
 import { Card, CardTitle, CardDescription } from '@/components/ui/card';
-import { Trophy, Loader2, CheckCircle, XCircle, Timer, Send, Coins, WifiOff } from 'lucide-react';
+import { Trophy, Loader2, CheckCircle, XCircle, Timer, Send, Coins, WifiOff, Triangle, Diamond, Circle, Square } from 'lucide-react';
+
+// Cores + formas fixas das respostas (linguagem universal de quiz)
+const ANSWER_SHAPES = [Triangle, Diamond, Circle, Square];
 import { Progress } from '@/components/ui/progress';
 
 export default function PlayerLiveGame() {
@@ -222,15 +225,19 @@ export default function PlayerLiveGame() {
               <>
                 <h2 className="text-4xl font-black text-center mb-10 leading-tight drop-shadow-lg">{currentQ?.prompt}</h2>
                 <div className="grid grid-cols-1 gap-4">
-                  {currentQ?.alternatives.map((alt, idx) => (
-                    <Button
-                      key={idx}
-                      className="h-24 text-2xl font-black bg-white text-primary hover:bg-white/90 shadow-[0_10px_0_0_rgba(255,255,255,0.2)] rounded-[2rem] transition-transform active:scale-95 whitespace-normal p-4"
-                      onClick={() => handleAnswer(idx)}
-                    >
-                      {alt}
-                    </Button>
-                  ))}
+                  {currentQ?.alternatives.map((alt, idx) => {
+                    const Shape = ANSWER_SHAPES[idx % 4];
+                    return (
+                      <button
+                        key={idx}
+                        className={`buzzer buzzer-${(idx % 4) + 1} text-xl md:text-2xl`}
+                        onClick={() => handleAnswer(idx)}
+                      >
+                        <span className="buzzer-glyph"><Shape className="fill-white" /></span>
+                        <span className="flex-1 leading-tight">{alt}</span>
+                      </button>
+                    );
+                  })}
                 </div>
               </>
             )}
